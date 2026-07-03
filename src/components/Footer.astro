@@ -1,0 +1,92 @@
+---
+import Marquee from './Marquee';
+import FooterAscii from './FooterAscii';
+---
+<footer class="footer">
+  {/*
+    Drop your own art in as `leftSrc`/`rightSrc` (e.g. files placed in
+    public/images/, referenced as "/images/hand-left.png") — any image
+    works, it's sampled down to ascii by brightness. Omit either prop to
+    keep the built-in procedural hand for that side.
+    <FooterAscii client:visible leftSrc="/images/hand-left.png" rightSrc="/images/hand-right.png" />
+  */}
+  <FooterAscii client:visible />
+
+  <div class="footer-marquee-wrap">
+    <Marquee client:visible text="— OPEN TO WORK — LET'S BUILD SOMETHING — SCROLL TO TOP —" />
+  </div>
+
+  <div class="footer-content section-pad">
+    <div class="footer-top">
+      <div class="footer-col">
+        <a href="mailto:you@example.com">you@example.com</a>
+        <span class="footer-dim">© {new Date().getFullYear()}</span>
+      </div>
+      <nav class="footer-col" aria-label="Social links">
+        <a href="https://github.com/your-handle" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://linkedin.com/in/your-handle" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+        <a href="https://behance.net/your-handle" target="_blank" rel="noopener noreferrer">Behance</a>
+      </nav>
+      <nav class="footer-col" aria-label="Footer navigation">
+        <a href="/work">Work</a>
+        <a href="/info">Info</a>
+        <a href="/contact">Contact</a>
+      </nav>
+    </div>
+
+    <div class="footer-name">Your Name.</div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    position: relative;
+    padding-top: clamp(2rem, 6vw, 4rem);
+    overflow: hidden;
+  }
+  .footer-marquee-wrap {
+    position: relative;
+    z-index: 1;
+    background: var(--bg);
+  }
+  .footer-content {
+    position: relative;
+    z-index: 1;
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    /* Empty space inside this box would otherwise still capture pointer
+       events (it's a hit-testable box even where nothing is drawn),
+       shadowing the ascii hands underneath. Pass clicks through here and
+       only re-enable them on the actual interactive/text children. */
+    pointer-events: none;
+  }
+  .footer-content a,
+  .footer-content span {
+    pointer-events: auto;
+  }
+  .footer-top {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin-bottom: clamp(2rem, 8vw, 6rem);
+  }
+  .footer-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .footer-dim {
+    color: var(--fg-dim);
+  }
+  .footer-name {
+    font-family: var(--font-display);
+    font-size: clamp(3rem, 14vw, 10rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 0.9;
+  }
+</style>

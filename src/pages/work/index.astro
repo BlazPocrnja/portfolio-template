@@ -1,0 +1,39 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import ProjectsList from '@/components/ProjectsList';
+import Footer from '@/components/Footer.astro';
+import { projects } from '@/data/projects';
+---
+<Layout title="Work — Your Name">
+  <section class="section-pad work-hero">
+    <a href="/" class="back-link">← Home</a>
+    <h1>Selected Work</h1>
+  </section>
+
+  <section class="section-pad">
+    <ProjectsList client:load projects={projects} />
+  </section>
+
+  <Footer />
+</Layout>
+
+<style>
+  .work-hero {
+    padding-top: clamp(4rem, 10vw, 7rem);
+    padding-bottom: 2rem;
+  }
+  .back-link {
+    display: inline-block;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-dim);
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2.5rem, 8vw, 5rem);
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+</style>

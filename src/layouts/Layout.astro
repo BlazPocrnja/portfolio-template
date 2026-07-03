@@ -1,0 +1,46 @@
+---
+import '@/styles/global.css';
+import Preloader from '@/components/Preloader';
+import CustomCursor from '@/components/CustomCursor';
+import SmoothScrollProvider from '@/components/SmoothScrollProvider';
+import ThemeToggle from '@/components/ThemeToggle';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const {
+  title,
+  description = 'Creative developer portfolio — built with Astro, React and GSAP.',
+} = Astro.props;
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0a0a0a" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script is:inline>
+      // Set the theme attribute before first paint so there's no flash of
+      // the wrong theme. Kept as a tiny inline script (not a React effect)
+      // specifically so it runs synchronously ahead of any hydration.
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <Preloader client:load />
+    <CustomCursor client:load />
+    <SmoothScrollProvider client:load />
+    <ThemeToggle client:load />
+    <slot />
+  </body>
+</html>

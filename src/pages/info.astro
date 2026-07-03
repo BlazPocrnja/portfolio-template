@@ -1,0 +1,123 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import Footer from '@/components/Footer.astro';
+
+const skillGroups = [
+  { title: 'Frontend', items: ['React', 'Astro', 'TypeScript', 'GSAP'] },
+  { title: 'Animation & 3D', items: ['GSAP / ScrollTrigger', 'Three.js', 'Lenis'] },
+  { title: 'Backend', items: ['Node.js', 'REST / GraphQL APIs'] },
+  { title: 'Tools', items: ['Git', 'Figma', 'Docker'] },
+];
+---
+<Layout title="Info — Your Name">
+  <section class="section-pad info-hero">
+    <a href="/" class="back-link">← Home</a>
+    <span class="eyebrow">About</span>
+    <h1>Creative developer, focused on interfaces, motion and detail.</h1>
+    <p class="role-desc">
+      I craft tailor-made web experiences where technical precision meets emotion.
+      Passionate about animation, interaction and <em>detail</em>, always seeking the
+      symbiosis between art and information.
+    </p>
+
+    <div class="meta-row">
+      <div>
+        <span class="meta-label">Based in</span>
+        <span class="meta-value">Your City, Country</span>
+      </div>
+      <div>
+        <span class="meta-label">Status</span>
+        <span class="meta-value">Open to work</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-pad skills">
+    {skillGroups.map((group) => (
+      <div class="skill-group">
+        <h3>{group.title}</h3>
+        <ul>
+          {group.items.map((item) => <li>{item}</li>)}
+        </ul>
+      </div>
+    ))}
+  </section>
+
+  <Footer />
+</Layout>
+
+<style>
+  .info-hero {
+    padding-top: clamp(4rem, 10vw, 7rem);
+    padding-bottom: clamp(3rem, 8vw, 5rem);
+    max-width: 60ch;
+  }
+  .back-link {
+    display: inline-block;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-dim);
+  }
+  .eyebrow {
+    display: block;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.75rem;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(1.8rem, 4.5vw, 3rem);
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin: 0 0 1.25rem;
+  }
+  .role-desc {
+    color: var(--fg-dim);
+    font-size: 1.05rem;
+    margin-bottom: 2rem;
+  }
+  .role-desc em {
+    color: var(--accent);
+    font-style: italic;
+  }
+  .meta-row {
+    display: flex;
+    gap: 2.5rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1.25rem;
+  }
+  .meta-label {
+    display: block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 0.25rem;
+  }
+  .skills {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 2rem;
+    padding-bottom: clamp(4rem, 8vw, 6rem);
+    border-top: 1px solid var(--line);
+    padding-top: 2.5rem;
+  }
+  .skill-group h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-dim);
+    margin: 0 0 0.75rem;
+  }
+  .skill-group ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+</style>

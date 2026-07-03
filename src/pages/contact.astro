@@ -1,0 +1,24 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import ContactSection from '@/components/ContactSection.astro';
+import Footer from '@/components/Footer.astro';
+---
+<Layout title="Contact — Your Name">
+  <section class="section-pad top-space">
+    <a href="/" class="back-link">← Home</a>
+  </section>
+  <ContactSection />
+  <Footer />
+</Layout>
+
+<style>
+  .top-space {
+    padding-top: clamp(3rem, 8vw, 5rem);
+  }
+  .back-link {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-dim);
+  }
+</style>

@@ -1,0 +1,1 @@
+import{r as o}from"./index.CVf8TyFT.js";import{i as t}from"./lenis.B5MZ3CbB.js";import{e}from"./gsap.nAyxWsi1.js";import"./index.SFc2wnMY.js";function l(){return o.useEffect(()=>{e();const r=t();return()=>{r?.destroy()}},[]),null}export{l as default};

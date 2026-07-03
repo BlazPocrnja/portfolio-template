@@ -1,0 +1,66 @@
+---
+import ScrollReveal from './ScrollReveal';
+---
+<section class="contact section-pad" id="contact">
+  <div class="contact-title">Contact</div>
+
+  <ScrollReveal client:visible as="p" className="contact-dispo">
+    Looking for an <span class="other-accent">apprenticeship / role</span> starting soon.
+    Eager to join a team and contribute to ambitious projects.
+  </ScrollReveal>
+
+  <ScrollReveal client:visible as="p" className="contact-dispo" delay={0.1}>
+    I'm available for <span class="other-accent">freelance work worldwide</span>, on
+    <span class="other-accent">ambitious projects</span> and collaborations.
+  </ScrollReveal>
+
+  <div class="contact-bottom">
+    <nav class="contact-socials" aria-label="Social links">
+      <a href="https://github.com/your-handle" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://linkedin.com/in/your-handle" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="https://behance.net/your-handle" target="_blank" rel="noopener noreferrer">Behance</a>
+    </nav>
+    <a class="contact-mail" href="mailto:you@example.com">you@example.com</a>
+  </div>
+</section>
+
+<style>
+  .contact {
+    padding-top: clamp(4rem, 12vw, 9rem);
+    padding-bottom: clamp(4rem, 12vw, 9rem);
+    border-top: 1px solid var(--line);
+  }
+  .contact-title {
+    font-family: var(--font-display);
+    font-size: clamp(2.5rem, 8vw, 6rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 2rem;
+  }
+  :global(.contact-dispo) {
+    max-width: 40ch;
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+  .contact-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 3rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1.5rem;
+  }
+  .contact-socials {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .contact-mail {
+    font-size: 1rem;
+    border-bottom: 1px solid var(--fg);
+  }
+</style>

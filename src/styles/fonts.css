@@ -1,0 +1,30 @@
+/*
+ * Drop-in custom fonts.
+ *
+ * Put font files in /public/fonts (see public/fonts/README.md), then
+ * uncomment and adjust one of the blocks below, and point --font-display /
+ * --font-sans at the family name in global.css's :root. Nothing else needs
+ * to change — this file is already imported from global.css.
+ */
+
+/*
+@font-face {
+  font-family: 'YourDisplayFont';
+  src: url('/fonts/YourDisplayFont.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'YourDisplayFont';
+  src: url('/fonts/YourDisplayFont-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+*/
+
+/* Free Google Font used as the default display face — swap this @import
+   (and the --font-display value in global.css) for your own font any time. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');

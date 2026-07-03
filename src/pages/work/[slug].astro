@@ -1,0 +1,101 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import Footer from '@/components/Footer.astro';
+import { projects } from '@/data/projects';
+
+export function getStaticPaths() {
+  return projects.map((p) => ({
+    params: { slug: p.slug },
+    props: { project: p },
+  }));
+}
+
+const { project } = Astro.props;
+---
+<Layout title={`${project.title} — Your Name`}>
+  <article class="detail section-pad">
+    <a href="/work" class="back-link">← Back to work</a>
+
+    <div class="detail-head">
+      <h1>{project.title}</h1>
+      <span class="detail-year">{project.year}</span>
+    </div>
+
+    <p class="detail-desc">{project.description}</p>
+
+    <div class="detail-tags">
+      {project.tags.map((tag) => (
+        <span class="tag">{tag}</span>
+      ))}
+    </div>
+
+    <div class="detail-gallery">
+      {project.gallery.map((src) => (
+        <img src={src} alt="" loading="lazy" />
+      ))}
+    </div>
+  </article>
+
+  <Footer />
+</Layout>
+
+<style>
+  .detail {
+    padding-top: clamp(4rem, 10vw, 7rem);
+    padding-bottom: 4rem;
+  }
+  .back-link {
+    display: inline-block;
+    margin-bottom: 2rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-dim);
+  }
+  .detail-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 6vw, 4rem);
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .detail-year {
+    color: var(--fg-dim);
+  }
+  .detail-desc {
+    max-width: 60ch;
+    color: var(--fg-dim);
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+  }
+  .detail-tags {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 3rem;
+  }
+  .tag {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    color: var(--fg-dim);
+  }
+  .detail-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+  .detail-gallery img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+</style>
