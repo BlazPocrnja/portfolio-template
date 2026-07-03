@@ -1,13 +1,14 @@
 ---
 import Marquee from './Marquee';
 import FooterAscii from './FooterAscii';
+import HoverLink from './HoverLink';
 ---
 <footer class="footer">
   {/*
     Drop your own art in as `leftSrc`/`rightSrc` (e.g. files placed in
     public/images/, referenced as "/images/hand-left.png") — any image
     works, it's sampled down to ascii by brightness. Omit either prop to
-    keep the built-in procedural hand for that side.
+    keep the baked-in hand art for that side.
     <FooterAscii client:visible leftSrc="/images/hand-left.png" rightSrc="/images/hand-right.png" />
   */}
   <FooterAscii client:visible />
@@ -19,18 +20,18 @@ import FooterAscii from './FooterAscii';
   <div class="footer-content section-pad">
     <div class="footer-top">
       <div class="footer-col">
-        <a href="mailto:you@example.com">you@example.com</a>
+        <a href="mailto:you@example.com"><HoverLink label="you@example.com" /></a>
         <span class="footer-dim">© {new Date().getFullYear()}</span>
       </div>
       <nav class="footer-col" aria-label="Social links">
-        <a href="https://github.com/your-handle" target="_blank" rel="noopener noreferrer">GitHub</a>
-        <a href="https://linkedin.com/in/your-handle" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-        <a href="https://behance.net/your-handle" target="_blank" rel="noopener noreferrer">Behance</a>
+        <a href="https://github.com/your-handle" target="_blank" rel="noopener noreferrer"><HoverLink label="GitHub" /></a>
+        <a href="https://linkedin.com/in/your-handle" target="_blank" rel="noopener noreferrer"><HoverLink label="LinkedIn" /></a>
+        <a href="https://behance.net/your-handle" target="_blank" rel="noopener noreferrer"><HoverLink label="Behance" /></a>
       </nav>
       <nav class="footer-col" aria-label="Footer navigation">
-        <a href="/work">Work</a>
-        <a href="/info">Info</a>
-        <a href="/contact">Contact</a>
+        <a href="/work"><HoverLink label="Work" /></a>
+        <a href="/info"><HoverLink label="Info" /></a>
+        <a href="/contact"><HoverLink label="Contact" /></a>
       </nav>
     </div>
 
@@ -41,7 +42,11 @@ import FooterAscii from './FooterAscii';
 <style>
   .footer {
     position: relative;
+    min-height: 62vh;
     padding-top: clamp(2rem, 6vw, 4rem);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
     overflow: hidden;
   }
   .footer-marquee-wrap {

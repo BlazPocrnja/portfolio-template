@@ -80,9 +80,13 @@ export default function ScrollProgress({ sections }: Props) {
       end: 'bottom bottom',
       onUpdate: (self) => {
         const progress = self.progress;
-        const docH = document.documentElement.scrollHeight - window.innerHeight;
-        const pageP = docH > 0 ? Math.round((window.scrollY / docH) * 100) : 0;
-        pctEl.textContent = `(${pageP})`;
+        // Deliberately the same `progress` the segmented bar below fills
+        // with — if this read from total document scroll instead, a long
+        // intro (see Hero.tsx's scroll-jacked flythrough) would make the
+        // two numbers disagree the moment this indicator appears: the
+        // percentage would already be well past 0 (intro ate a big chunk
+        // of the page) while the About segment reads as just-started.
+        pctEl.textContent = `(${Math.round(progress * 100)})`;
 
         if (progress <= 0 || progress >= 0.95) {
           wrap.classList.remove('visible');
@@ -111,7 +115,6 @@ export default function ScrollProgress({ sections }: Props) {
         }
 
         label.textContent = segs[activeIdx]?.label ?? '';
-        label.style.top = `${(progress * 100).toFixed(1)}%`;
       },
     });
 
@@ -149,12 +152,14 @@ export default function ScrollProgress({ sections }: Props) {
         }
         .sp-label {
           position: absolute;
-          right: calc(100% + 14px);
-          font-size: clamp(0.7rem, 1vw, 0.85rem);
+          right: 0;
+          bottom: calc(100% + 10px);
+          font-size: clamp(0.65rem, 0.9vw, 0.8rem);
           text-transform: uppercase;
           letter-spacing: 0.05em;
           color: var(--fg);
           white-space: nowrap;
+          text-align: right;
         }
         .sp-bar {
           position: relative;

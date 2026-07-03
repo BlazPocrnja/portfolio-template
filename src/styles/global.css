@@ -19,6 +19,16 @@
   --container-pad: clamp(1.25rem, 4vw, 3rem);
 }
 
+/* The custom ScrollProgress bar (left % readout + right section indicator)
+   is the only scroll UI meant to be visible — reserve real gutters for it
+   above the breakpoint where it shows (see ScrollProgress.tsx's own
+   768px cutoff) so body copy can never sit underneath it. */
+@media (min-width: 769px) {
+  :root {
+    --container-pad: clamp(4.5rem, 6vw, 6.5rem);
+  }
+}
+
 :root[data-theme='light'] {
   --bg: #f7f6f3;
   --bg-elevated: #e9e7e2;
@@ -36,6 +46,14 @@ html {
   background: var(--bg);
   color-scheme: dark;
   transition: background 0.3s ease;
+  /* Hide the native scrollbar — ScrollProgress.tsx is the only scroll UI
+     meant to be visible. Scrolling itself is untouched, just the chrome. */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+}
+
+html::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/new Edge */
 }
 
 html[data-theme='light'] {
@@ -50,11 +68,20 @@ body {
   font-size: 16px;
   line-height: 1.4;
   overflow-x: hidden;
-  cursor: none; /* replaced by CustomCursor on non-touch devices */
+}
+
+/* CustomCursor.tsx replaces the native cursor on non-touch devices. `cursor`
+   is inherited, but browsers' own UA stylesheets set `cursor: pointer` (or
+   similar) directly on things like <a href> and form controls — a direct
+   declaration always beats an inherited value, so body{cursor:none} alone
+   doesn't reach them. The universal selector here matches every element
+   with the same (author-origin) precedence, which is enough to win. */
+* {
+  cursor: none;
 }
 
 @media (hover: none) {
-  body {
+  * {
     cursor: auto;
   }
 }
@@ -62,6 +89,14 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Plain links (not the character-roll ones, which already have their own
+   strong hover affordance) get an underline on hover — with the native
+   pointer cursor gone, this keeps "this is clickable" legible. */
+a:hover:not(:has(.chr-hover)) {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 img {
@@ -132,7 +167,6 @@ button {
   color: inherit;
   background: none;
   border: none;
-  cursor: none;
 }
 
 ::selection {

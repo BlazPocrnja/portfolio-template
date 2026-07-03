@@ -1,7 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { gsap, ScrollTrigger, ensureGsap } from '@/lib/gsap';
+import { HAND_ASCII_LEFT, HAND_ASCII_RIGHT } from '@/data/hand-ascii';
 
-/** Character pools ordered from sparsest to densest — brightness picks a pool, hover swaps to its mirror. */
+/** Character pools ordered from sparsest to densest — brightness (or, for the baked art, a reverse lookup) picks a pool; hover swaps a cell to its density mirror. */
 const POOLS = [
   ' ',
   '·.,',
@@ -30,68 +31,36 @@ function makeRng(seed: number) {
   };
 }
 
-function roundedCapsule(ctx: CanvasRenderingContext2D, x: number, topY: number, radius: number) {
-  ctx.beginPath();
-  ctx.moveTo(x - radius, 0);
-  ctx.lineTo(x - radius, topY);
-  ctx.arc(x, topY, radius, Math.PI, 0, false);
-  ctx.lineTo(x + radius, 0);
-  ctx.arc(x, 0, radius, 0, Math.PI, false);
-  ctx.closePath();
-  ctx.fill();
-}
+/** Reverse lookup: which pool a literal character belongs to, so the baked ascii art can still ripple on hover. */
+const CHAR_TO_POOL = new Map<string, number>();
+POOLS.forEach((pool, i) => {
+  for (const ch of pool) CHAR_TO_POOL.set(ch, i);
+});
 
-/** Draws a simple open-hand silhouette (palm + four fingers + thumb) — the built-in fallback when no image is supplied. */
-function drawHand(ctx: CanvasRenderingContext2D, w: number, h: number, mirror: boolean) {
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#fff';
-  ctx.save();
-  if (mirror) {
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
+/** Turns a block of pre-rendered ascii text (equal-width rows) into the same grid shape the image sampler produces. */
+function gridFromAsciiArt(rows: string[]): AsciiGrid {
+  const cols = Math.max(0, ...rows.map((r) => [...r].length));
+  const chars: string[][] = [];
+  const pools: number[][] = [];
+  for (const row of rows) {
+    const rowChars = [...row];
+    while (rowChars.length < cols) rowChars.push(' ');
+    chars.push(rowChars);
+    pools.push(rowChars.map((ch) => CHAR_TO_POOL.get(ch) ?? -1));
   }
-
-  const palmCx = w * 0.5;
-  const palmCy = h * 0.72;
-  const palmRx = w * 0.32;
-  const palmRy = h * 0.26;
-
-  ctx.beginPath();
-  ctx.ellipse(palmCx, palmCy, palmRx, palmRy, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  const fingers = [
-    { dx: -0.26, len: 0.44, wid: 0.09, rot: -0.16 },
-    { dx: -0.09, len: 0.56, wid: 0.1, rot: -0.04 },
-    { dx: 0.09, len: 0.54, wid: 0.1, rot: 0.05 },
-    { dx: 0.25, len: 0.4, wid: 0.09, rot: 0.2 },
-  ];
-  fingers.forEach((f) => {
-    const baseX = palmCx + f.dx * w;
-    const baseY = palmCy - palmRy * 0.55;
-    ctx.save();
-    ctx.translate(baseX, baseY);
-    ctx.rotate(f.rot);
-    roundedCapsule(ctx, 0, -f.len * h, (f.wid * w) / 2);
-    ctx.restore();
-  });
-
-  ctx.save();
-  ctx.translate(palmCx - palmRx * 0.9, palmCy - palmRy * 0.1);
-  ctx.rotate(-0.85);
-  roundedCapsule(ctx, 0, -h * 0.28, w * 0.1);
-  ctx.restore();
-
-  ctx.restore();
+  return { chars, pools, cols, rows: chars.length };
 }
+
+const FALLBACK_GRID_LEFT = gridFromAsciiArt(HAND_ASCII_LEFT);
+const FALLBACK_GRID_RIGHT = gridFromAsciiArt(HAND_ASCII_RIGHT);
 
 /**
- * Samples a source (canvas or already-loaded image) down to `cols` columns
- * and maps brightness to a character pool. Returns an empty grid (cols: 0)
- * if the source can't be read — e.g. a cross-origin image without CORS
- * headers taints the canvas — so the caller can fall back.
+ * Samples a source image down to `cols` columns and maps brightness to a
+ * character pool. Returns an empty grid (cols: 0) if the source can't be
+ * read — e.g. a cross-origin image without CORS headers taints the canvas
+ * — so the caller can fall back to the baked-in hand art.
  */
-function buildAsciiGrid(
+function buildAsciiGridFromImage(
   source: CanvasImageSource,
   sourceW: number,
   sourceH: number,
@@ -145,6 +114,23 @@ function buildAsciiGrid(
   return { chars, pools, cols, rows };
 }
 
+const LINE_HEIGHT = 1.1;
+
+/**
+ * Different art has wildly different row counts (the left hand's baked art
+ * is 37 rows; the right is ~107, mostly blank padding that pushes it lower
+ * in its panel). A shared fixed font-size would either overflow the tall
+ * one or shrink the short one to nothing, so each panel's font-size is
+ * derived from its own row count against a shared target pixel height —
+ * letter-spacing stays fixed (aspect-ratio-correct), only the scale changes.
+ */
+function applyFontSizeForRows(pre: HTMLPreElement, rows: number) {
+  if (!rows) return;
+  const targetPx = Math.min(460, Math.max(260, window.innerHeight * 0.4));
+  const fontPx = targetPx / (rows * LINE_HEIGHT);
+  pre.style.fontSize = `${fontPx.toFixed(2)}px`;
+}
+
 function escapeChar(ch: string): string {
   if (ch === '<') return '&lt;';
   if (ch === '>') return '&gt;';
@@ -152,7 +138,7 @@ function escapeChar(ch: string): string {
   return ch;
 }
 
-/** Wires up hover-distortion on a <pre> given its current ascii grid (read via a getter so resizes/reloads stay live). */
+/** Wires up hover-distortion on a <pre> given its current ascii grid (read via a getter so image reloads stay live). */
 function attachHover(pre: HTMLPreElement, getGrid: () => AsciiGrid) {
   const radius = 2.5;
   let noise: number[][] = [];
@@ -266,14 +252,14 @@ function attachHover(pre: HTMLPreElement, getGrid: () => AsciiGrid) {
 
 interface AsciiPanelProps {
   side: 'left' | 'right';
-  /** Optional image to render as ascii instead of the built-in hand silhouette (e.g. "/images/footer-hand-left.png"). */
+  /** Optional image to render as ascii instead of the baked-in hand art (e.g. "/images/footer-hand-left.png"). */
   src?: string;
 }
 
 /**
  * Renders one ascii panel. Prefers `src` (any image you drop in) and falls
- * back to the procedural hand silhouette if no src is given, it fails to
- * load, or it can't be sampled (e.g. a cross-origin image without CORS).
+ * back to the baked-in hand art if no src is given, it fails to load, or it
+ * can't be sampled (e.g. a cross-origin image without CORS).
  */
 const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPanel({ side, src }, ref) {
   const preRef = useRef<HTMLPreElement>(null);
@@ -285,41 +271,33 @@ const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPan
     if (!pre) return;
     let cancelled = false;
     let loadedImage: HTMLImageElement | null = null;
-
-    const fallbackCanvas = document.createElement('canvas');
-    fallbackCanvas.width = 240;
-    fallbackCanvas.height = 300;
-    const fctx = fallbackCanvas.getContext('2d');
+    const fallbackGrid = side === 'left' ? FALLBACK_GRID_LEFT : FALLBACK_GRID_RIGHT;
 
     function applyGrid(grid: AsciiGrid) {
       if (cancelled || !grid.cols) return;
       gridRef.current = grid;
       pre.textContent = grid.chars.map((row) => row.join('')).join('\n');
+      applyFontSizeForRows(pre, grid.rows);
     }
 
-    function cols() {
-      return window.innerWidth < 1400 ? 44 : 56;
+    function useFallback() {
+      applyGrid(fallbackGrid);
     }
 
-    function rebuildFallback() {
-      if (!fctx) return;
-      drawHand(fctx, fallbackCanvas.width, fallbackCanvas.height, side === 'right');
-      applyGrid(
-        buildAsciiGrid(fallbackCanvas, fallbackCanvas.width, fallbackCanvas.height, cols(), side === 'left' ? 11 : 97)
-      );
-    }
-
-    function rebuild() {
-      if (loadedImage) {
-        const grid = buildAsciiGrid(loadedImage, loadedImage.naturalWidth, loadedImage.naturalHeight, cols(), side === 'left' ? 11 : 97);
-        if (grid.cols) {
-          applyGrid(grid);
-          return;
-        }
+    function rebuildFromImage() {
+      if (!loadedImage) {
+        useFallback();
+        return;
+      }
+      const cols = window.innerWidth < 1400 ? 44 : 56;
+      const grid = buildAsciiGridFromImage(loadedImage, loadedImage.naturalWidth, loadedImage.naturalHeight, cols, side === 'left' ? 11 : 97);
+      if (grid.cols) {
+        applyGrid(grid);
+      } else {
         // Sampling failed (tainted canvas) — drop the bad image and use the fallback from here on.
         loadedImage = null;
+        useFallback();
       }
-      rebuildFallback();
     }
 
     if (src) {
@@ -328,21 +306,28 @@ const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPan
       img.onload = () => {
         if (cancelled) return;
         loadedImage = img;
-        rebuild();
+        rebuildFromImage();
       };
       img.onerror = () => {
         if (cancelled) return;
-        rebuild();
+        useFallback();
       };
       img.src = src;
+      useFallback(); // show something immediately while the image loads
     } else {
-      rebuild();
+      useFallback();
     }
 
+    // The image path also needs its column count recomputed (viewport-
+    // dependent); the baked art's grid is fixed, so it only needs a
+    // font-size rescale to the new viewport height.
     let resizeTimer = 0;
     const onResize = () => {
       window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(rebuild, 150);
+      resizeTimer = window.setTimeout(() => {
+        if (src) rebuildFromImage();
+        else applyFontSizeForRows(pre, gridRef.current.rows);
+      }, 150);
     };
     window.addEventListener('resize', onResize);
 
@@ -360,15 +345,15 @@ const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPan
 });
 
 interface Props {
-  /** Drop-in art for each hand — any image works (it's sampled down to ascii by brightness). Falls back to a procedural hand silhouette when omitted. */
+  /** Drop-in art for each hand — any image works (it's sampled down to ascii by brightness). Falls back to the baked-in hand art when omitted. */
   leftSrc?: string;
   rightSrc?: string;
 }
 
 /**
  * Decorative ascii-art layer for the footer: two hand silhouettes rendered
- * as text (your own image if you pass one, otherwise a built-in procedural
- * hand), sliding in from the edges as the footer enters view, drifting
+ * as text (your own image if you pass one, otherwise the baked-in hand
+ * art), sliding in from the edges as the footer enters view, drifting
  * toward the cursor, and rippling to denser characters on hover.
  */
 export default function FooterAscii({ leftSrc, rightSrc }: Props) {
@@ -464,6 +449,9 @@ export default function FooterAscii({ leftSrc, rightSrc }: Props) {
           display: flex;
           align-items: center;
           height: 100%;
+          width: 46%;
+          max-width: 46%;
+          overflow: hidden;
           will-change: transform;
         }
         .footer-ascii-panel.left {
@@ -473,10 +461,17 @@ export default function FooterAscii({ leftSrc, rightSrc }: Props) {
           justify-content: flex-end;
         }
         .footer-ascii {
+          /* letter-spacing 0.5em is load-bearing, not decorative: a
+             monospace glyph's advance is ~0.6em, so 0.6 + 0.5 = 1.1em wide —
+             matching line-height 1.1 gives a roughly square character cell.
+             That's the aspect ratio this art was authored against; a
+             smaller letter-spacing (however tempting for fit) squashes the
+             hand shape horizontally instead of just shrinking it. Fit is
+             controlled by font-size alone. */
           font-family: Consolas, Menlo, monospace;
-          font-size: clamp(0.32rem, 0.45vw, 0.55rem);
+          font-size: clamp(0.26rem, 0.5vw, 0.42rem);
           line-height: 1.1;
-          letter-spacing: 0.4em;
+          letter-spacing: 0.5em;
           color: var(--accent);
           opacity: 0.85;
           white-space: pre;
