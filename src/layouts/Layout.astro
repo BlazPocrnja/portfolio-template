@@ -44,17 +44,25 @@ const {
 
       // Same trick for the intro preloader: Preloader.tsx's curtain panels
       // are opaque and only get animated out of the way by a React effect,
-      // which runs after first paint. On a repeat visit (or reduced motion)
-      // there's nothing to animate, but without this the browser still
-      // paints one frame of the solid accent-colored curtain before React
-      // hydrates and hides it. Deciding synchronously here, before any
-      // paint, lets global.css hide the preloader outright via
-      // [data-intro="skip"] with no visible frame at all.
+      // which runs after first paint. Without deciding synchronously here,
+      // before any paint, the browser would still paint one frame of the
+      // solid accent-colored curtain before React hydrates and hides it.
+      //
+      // Whether it plays at all is keyed off `hero-in-view` (kept live by
+      // an IntersectionObserver in Hero.tsx): reloading while any part of
+      // the hero is still on screen — including mid-flythrough, not just
+      // the very top — replays the intro, since Preloader.tsx resets scroll
+      // to the top while it's hidden behind the curtain anyway. Reloading
+      // after scrolling past the hero into the regular page content skips
+      // it entirely, so that scroll position is left alone instead of
+      // jumping back to the top. Unset (never recorded yet, e.g. a fresh
+      // tab or a direct link into a subpage) defaults to showing it.
       (function () {
         try {
-          var seen = sessionStorage.getItem('has-seen-intro');
+          var heroInView = sessionStorage.getItem('hero-in-view');
           var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-          document.documentElement.setAttribute('data-intro', seen || reduced ? 'skip' : 'pending');
+          var skip = reduced || heroInView === '0';
+          document.documentElement.setAttribute('data-intro', skip ? 'skip' : 'pending');
         } catch (e) {
           document.documentElement.setAttribute('data-intro', 'pending');
         }

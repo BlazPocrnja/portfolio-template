@@ -49,6 +49,30 @@ export default function Hero() {
     setTallHero(!window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }, []);
 
+  // Tracks whether any part of the hero (including mid-flythrough, not just
+  // the very top) is on screen, persisted so Layout.astro's preloader-skip
+  // script can read it on the NEXT load: refreshing while still within the
+  // hero replays the intro (Preloader.tsx resets scroll to top while hidden
+  // behind its curtain), but refreshing after scrolling into the regular
+  // page content skips it and leaves scroll position alone.
+  useEffect(() => {
+    const wrap = scrollWrapRef.current;
+    if (!wrap) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        try {
+          sessionStorage.setItem('hero-in-view', entry.isIntersecting ? '1' : '0');
+        } catch {
+          // sessionStorage can throw in private-browsing/sandboxed contexts — the
+          // preloader just falls back to always showing on reload in that case.
+        }
+      },
+      { threshold: 0 }
+    );
+    io.observe(wrap);
+    return () => io.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!tallHero) return;
     ensureGsap();

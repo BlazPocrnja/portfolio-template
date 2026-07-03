@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { gsap } from '@/lib/gsap';
+import { getLenis } from '@/lib/lenis';
 
 /**
  * Full-screen intro that reveals the site name letter-by-letter, holds
  * briefly, then wipes away with a two-panel transition to expose the hero.
- * Skips itself entirely on repeat visits within the session and for users
- * who prefer reduced motion.
+ * Replays on every reload for as long as the hero is still on screen
+ * (tracked by Hero.tsx's IntersectionObserver into `hero-in-view`) and skips
+ * itself once the page has been scrolled past the hero, or for users who
+ * prefer reduced motion — see the head script in Layout.astro.
  */
 export default function Preloader() {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelDarkRef = useRef<HTMLDivElement>(null);
   const panelAccentRef = useRef<HTMLDivElement>(null);
   // Layout.astro's inline head script sets this synchronously, before first
-  // paint, so a repeat visit never mounts (or paints) the curtain at all —
+  // paint, so a skipped run never mounts (or paints) the curtain at all —
   // reading it here (instead of only deciding in an effect, which runs
   // after paint) skips the pointless extra render/GSAP setup to match.
   const [skip] = useState(
@@ -23,13 +26,18 @@ export default function Preloader() {
     if (skip) return;
 
     document.documentElement.style.overflow = 'hidden';
+    // A reload can land mid-flythrough (any part of the hero still in view
+    // counts, not just the very top). Snap back to the top while the
+    // opaque curtain is covering the screen so the intro always plays
+    // against a fresh hero, not one already scrolled partway through.
+    window.scrollTo(0, 0);
 
     const letters = rootRef.current?.querySelectorAll('.pre-letter');
     const tl = gsap.timeline({
       delay: 0.2,
       onComplete: () => {
         document.documentElement.style.overflow = '';
-        sessionStorage.setItem('has-seen-intro', '1');
+        getLenis()?.start();
       },
     });
 

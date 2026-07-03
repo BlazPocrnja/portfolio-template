@@ -14,6 +14,16 @@ export function initSmoothScroll() {
 
   lenis = new Lenis({ lerp: 0.08, smoothWheel: true });
 
+  // Keep scroll locked for as long as Preloader.tsx's intro curtain is
+  // covering the screen. Checking its `data-intro` attribute here (instead
+  // of having Preloader call `.stop()` itself once mounted) sidesteps a
+  // hydration race: Preloader and this provider are separate client:load
+  // islands with no guaranteed mount order, but `data-intro` is set
+  // synchronously by Layout.astro's head script before either hydrates.
+  if (document.documentElement.getAttribute('data-intro') === 'pending') {
+    lenis.stop();
+  }
+
   lenis.on('scroll', ScrollTrigger.update);
   gsap.ticker.add((time) => lenis?.raf(time * 1000));
 
