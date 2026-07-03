@@ -81,7 +81,7 @@ export default function ProjectsList({ projects }: Props) {
           border-bottom: 1px solid var(--line);
           font-family: var(--font-display);
           font-size: clamp(1.4rem, 3.2vw, 2.1rem);
-          font-weight: 400;
+          font-weight: 700;
           transition: opacity 0.3s;
         }
         .projects-list:hover .proj-item {

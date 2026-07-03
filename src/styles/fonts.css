@@ -1,43 +1,175 @@
 /*
- * Drop-in custom fonts.
+ * Drop-in custom fonts, wired to the files in /public/fonts.
  *
- * Put font files in /public/fonts (see public/fonts/README.md), then
- * uncomment and adjust one of the blocks below, and point one of the
- * --font-* variables at the family name in global.css's :root. Nothing else
- * needs to change — this file is already imported from global.css.
- *
- * Reaching for something like Druk, Kazimir, or Giorgio Sans (the fonts a
- * lot of premium creative-studio sites use, Readymag's own marketing site
- * included)? Those are commercial fonts licensed per-project from their
- * foundries (Commercial Type / Type Today) — not something to hotlink from
- * another site's CDN. If you buy a license and get the font files, this is
- * exactly where they go; the free faces below are just the placeholder
- * until then, chosen to sit in the same register (condensed display /
- * editorial serif / grotesk mono).
+ * Four roles feed --font-display / --font-serif / --font-sans / --font-mono
+ * in global.css's :root:
+ *   - Druk Wide     → --font-display  (big wordmark moments: hero name,
+ *     footer name, section titles). Only ships Bold (700) and Super (900) —
+ *     there is no 400 weight, so anything using --font-display sets
+ *     font-weight to 700 or 900, never 400.
+ *   - Austin        → --font-serif    (editorial/tagline text).
+ *   - Graphik       → --font-sans     (actual body copy — About/Contact
+ *     blurbs — where a plain grotesk reads better than a mono face).
+ *   - IBM Plex Mono → --font-mono     (nav links, meta labels, ticker text —
+ *     the technical register; imported from Google Fonts below instead of
+ *     a local file).
  */
 
-/*
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+
 @font-face {
-  font-family: 'YourDisplayFont';
-  src: url('/fonts/YourDisplayFont.woff2') format('woff2');
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-Roman-Web.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
-
 @font-face {
-  font-family: 'YourDisplayFont';
-  src: url('/fonts/YourDisplayFont-Bold.woff2') format('woff2');
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-RomanItalic-Web.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-Semibold-Web.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-SemiboldItalic-Web.woff2') format('woff2');
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-Bold-Web.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
-*/
+@font-face {
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-BoldItalic-Web.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-Fat-Web.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-Ultra-Web.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Austin';
+  src: url('/fonts/AustinCy-UltraItalic-Web.woff2') format('woff2');
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+}
 
-/* Free Google Fonts used as the default type system — swap any of these
-   @imports (and the matching --font-* value in global.css) for your own
-   fonts any time.
-   - Anton: tall, condensed, black-weight display — the "big wordmark" role.
-   - Fraunces: a soft, slightly quirky variable serif — editorial/tagline role.
-   - IBM Plex Mono: nav links, meta labels, ticker text — the "studio" grid feel. */
-@import url('https://fonts.googleapis.com/css2?family=Anton&family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@font-face {
+  font-family: 'Druk Wide';
+  src: url('/fonts/DrukWideCy-Bold-Web.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Druk Wide';
+  src: url('/fonts/DrukWideCy-Super-Web.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-Thin-Web.woff2') format('woff2');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-ExtraLight-Web.woff2') format('woff2');
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-Light-Web.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-Regular-Web.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-RegularItalic-Web.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-Medium-Web.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-MediumItalic-Web.woff2') format('woff2');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-Bold-Web.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-BoldItalic-Web.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-Black-Web.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/GraphikLC-Super-Web.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}

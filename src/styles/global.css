@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 @import './fonts.css';
 
 :root {
@@ -11,16 +10,15 @@
   --accent: #ff3b14;
   --line: rgba(242, 240, 236, 0.14);
 
-  --font-sans: 'Inter', system-ui, sans-serif;
-  /* See public/fonts/README.md + styles/fonts.css to drop in your own faces —
-     these three are free placeholders standing in for a paid type system
-     (think Druk / Kazimir / Giorgio Sans): a condensed black-weight display
-     for big wordmark moments, a soft editorial serif for taglines, and a
-     grotesk mono for nav/meta text. Anton ships one weight (400) that's
-     already visually heavy — don't set font-weight: 700 on it, that just
-     triggers ugly faux-bold. */
-  --font-display: 'Anton', 'Archivo Black', sans-serif;
-  --font-serif: 'Fraunces', Georgia, serif;
+  /* Custom type system, wired up in styles/fonts.css from public/fonts
+     (+ Google's IBM Plex Mono): Druk Wide for big wordmark moments, Austin
+     for editorial/tagline text, Graphik for actual body copy, IBM Plex Mono
+     for the technical nav/meta/label register. Druk Wide only ships Bold
+     (700) and Super (900) — no 400 — so anything on --font-display sets
+     font-weight to 700 or 900, never 400. */
+  --font-sans: 'Graphik', system-ui, sans-serif;
+  --font-display: 'Druk Wide', 'Archivo Black', sans-serif;
+  --font-serif: 'Austin', Georgia, serif;
   --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --container-pad: clamp(1.25rem, 4vw, 3rem);

@@ -232,8 +232,8 @@ export default function Hero() {
         .hero-name {
           font-family: var(--font-display);
           font-size: clamp(2.5rem, 9vw, 6.5rem);
-          font-weight: 400;
-          letter-spacing: -0.01em;
+          font-weight: 900;
+          letter-spacing: 0;
           line-height: 0.9;
           margin-bottom: clamp(1.5rem, 4vw, 3rem);
         }
