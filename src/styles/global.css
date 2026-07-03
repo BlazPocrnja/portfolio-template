@@ -65,6 +65,16 @@ html[data-theme='light'] {
   color-scheme: light;
 }
 
+/* Preloader.tsx's curtain only animates out of the way via a React effect
+   (runs after first paint), so on a repeat visit / reduced motion there'd
+   otherwise be one painted frame of the solid accent-colored curtain before
+   React hides it. The attribute is set synchronously in Layout.astro's head
+   script, ahead of any paint; the attribute selector's specificity beats
+   the component's own `.preloader` rule regardless of source order. */
+html[data-intro='skip'] .preloader {
+  display: none;
+}
+
 body {
   margin: 0;
   background: var(--bg);

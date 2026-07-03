@@ -81,19 +81,28 @@
   font-display: swap;
 }
 
+/* `optional` (not `swap`) for Druk Wide specifically: it's an ultra-wide,
+   condensed display face used at huge sizes (hero name, section titles) —
+   metrics are nowhere near its sans-serif fallback, so a `swap`-driven
+   reflow (which always paints the fallback first, by spec, cache or not)
+   is a large, visible jitter on the biggest text on the page. `optional`
+   gives it a short block period and skips the later swap entirely, so a
+   cached/preloaded font just renders correctly with no reflow, at the cost
+   of occasionally sticking with the fallback on a very slow first load —
+   an acceptable trade for a headline face. */
 @font-face {
   font-family: 'Druk Wide';
   src: url('/fonts/DrukWideCy-Bold-Web.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
-  font-display: swap;
+  font-display: optional;
 }
 @font-face {
   font-family: 'Druk Wide';
   src: url('/fonts/DrukWideCy-Super-Web.woff2') format('woff2');
   font-weight: 900;
   font-style: normal;
-  font-display: swap;
+  font-display: optional;
 }
 
 @font-face {

@@ -11,18 +11,16 @@ export default function Preloader() {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelDarkRef = useRef<HTMLDivElement>(null);
   const panelAccentRef = useRef<HTMLDivElement>(null);
-  const [skip, setSkip] = useState(false);
+  // Layout.astro's inline head script sets this synchronously, before first
+  // paint, so a repeat visit never mounts (or paints) the curtain at all —
+  // reading it here (instead of only deciding in an effect, which runs
+  // after paint) skips the pointless extra render/GSAP setup to match.
+  const [skip] = useState(
+    () => typeof document !== 'undefined' && document.documentElement.getAttribute('data-intro') === 'skip'
+  );
 
   useEffect(() => {
-    const prefersReducedMotion = window.matchMedia(
-      '(prefers-reduced-motion: reduce)'
-    ).matches;
-    const alreadySeen = sessionStorage.getItem('has-seen-intro');
-
-    if (prefersReducedMotion || alreadySeen) {
-      setSkip(true);
-      return;
-    }
+    if (skip) return;
 
     document.documentElement.style.overflow = 'hidden';
 
@@ -91,11 +89,14 @@ export default function Preloader() {
           background: var(--bg);
         }
         .preloader-name {
+          position: relative;
+          z-index: 3;
           display: flex;
           font-family: var(--font-display);
           font-size: clamp(2rem, 6vw, 4.5rem);
           font-weight: 700;
           letter-spacing: -0.005em;
+          color: var(--fg);
         }
         .pre-letter-wrap {
           overflow: hidden;
