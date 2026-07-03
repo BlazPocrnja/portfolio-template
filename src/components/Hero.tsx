@@ -216,12 +216,10 @@ export default function Hero() {
           top: var(--container-pad);
           left: var(--container-pad);
           font-family: var(--font-serif);
-          font-style: italic;
-          font-size: clamp(0.8rem, 1vw, 1rem);
+          font-size: clamp(1.6rem, 3.2vw, 2.6rem);
           font-weight: 400;
-          line-height: 1.6;
-          letter-spacing: -0.005em;
-          max-width: 26ch;
+          line-height: 1.3;
+          max-width: 14ch;
         }
         .hero-bottom {
           position: absolute;
@@ -266,7 +264,7 @@ export default function Hero() {
         }
         @media (max-width: 640px) {
           .hero-tagline {
-            max-width: calc(100% - 2 * var(--container-pad));
+            max-width: calc(100% - 2 * var(--container-pad) - 5.5rem);
           }
         }
         @media (prefers-reduced-motion: reduce) {

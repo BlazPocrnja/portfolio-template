@@ -117,6 +117,7 @@ export default function ProjectsList({ projects }: Props) {
           display: flex;
           justify-content: space-between;
           padding: 0.4rem 0.6rem;
+          font-family: var(--font-mono);
           font-size: 0.65rem;
           text-transform: uppercase;
           letter-spacing: 0.05em;

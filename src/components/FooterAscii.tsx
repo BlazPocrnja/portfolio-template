@@ -498,7 +498,7 @@ export default function FooterAscii({ leftSrc, rightSrc }: Props) {
           white-space: pre;
           user-select: none;
           pointer-events: auto;
-          cursor: default;
+          cursor: none;
           margin: 0;
           will-change: transform;
         }
