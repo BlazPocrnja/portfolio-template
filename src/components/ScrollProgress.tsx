@@ -154,9 +154,10 @@ export default function ScrollProgress({ sections }: Props) {
           position: absolute;
           right: 0;
           bottom: calc(100% + 10px);
-          font-size: clamp(0.65rem, 0.9vw, 0.8rem);
+          font-family: var(--font-mono);
+          font-size: clamp(0.6rem, 0.85vw, 0.75rem);
           text-transform: uppercase;
-          letter-spacing: 0.05em;
+          letter-spacing: 0.03em;
           color: var(--fg);
           white-space: nowrap;
           text-align: right;
@@ -203,8 +204,9 @@ export default function ScrollProgress({ sections }: Props) {
           top: 50%;
           transform: translateY(-50%);
           z-index: 500;
-          font-size: clamp(0.7rem, 1vw, 0.85rem);
-          letter-spacing: 0.05em;
+          font-family: var(--font-mono);
+          font-size: clamp(0.65rem, 0.95vw, 0.8rem);
+          letter-spacing: 0.03em;
           color: var(--fg);
           pointer-events: none;
           opacity: 0;

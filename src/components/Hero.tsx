@@ -215,9 +215,10 @@ export default function Hero() {
           position: absolute;
           top: var(--container-pad);
           left: var(--container-pad);
-          font-family: var(--font-display);
-          font-size: clamp(0.75rem, 1vw, 0.95rem);
-          font-weight: 600;
+          font-family: var(--font-serif);
+          font-style: italic;
+          font-size: clamp(0.8rem, 1vw, 1rem);
+          font-weight: 400;
           line-height: 1.6;
           letter-spacing: -0.005em;
           max-width: 26ch;
@@ -231,8 +232,8 @@ export default function Hero() {
         .hero-name {
           font-family: var(--font-display);
           font-size: clamp(2.5rem, 9vw, 6.5rem);
-          font-weight: 700;
-          letter-spacing: -0.03em;
+          font-weight: 400;
+          letter-spacing: -0.01em;
           line-height: 0.9;
           margin-bottom: clamp(1.5rem, 4vw, 3rem);
         }
@@ -245,9 +246,10 @@ export default function Hero() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          font-size: 0.85rem;
+          font-family: var(--font-mono);
+          font-size: 0.8rem;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
+          letter-spacing: 0.03em;
           flex-wrap: wrap;
           gap: 0.75rem;
         }

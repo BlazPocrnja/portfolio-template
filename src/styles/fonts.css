@@ -2,9 +2,18 @@
  * Drop-in custom fonts.
  *
  * Put font files in /public/fonts (see public/fonts/README.md), then
- * uncomment and adjust one of the blocks below, and point --font-display /
- * --font-sans at the family name in global.css's :root. Nothing else needs
- * to change — this file is already imported from global.css.
+ * uncomment and adjust one of the blocks below, and point one of the
+ * --font-* variables at the family name in global.css's :root. Nothing else
+ * needs to change — this file is already imported from global.css.
+ *
+ * Reaching for something like Druk, Kazimir, or Giorgio Sans (the fonts a
+ * lot of premium creative-studio sites use, Readymag's own marketing site
+ * included)? Those are commercial fonts licensed per-project from their
+ * foundries (Commercial Type / Type Today) — not something to hotlink from
+ * another site's CDN. If you buy a license and get the font files, this is
+ * exactly where they go; the free faces below are just the placeholder
+ * until then, chosen to sit in the same register (condensed display /
+ * editorial serif / grotesk mono).
  */
 
 /*
@@ -25,6 +34,10 @@
 }
 */
 
-/* Free Google Font used as the default display face — swap this @import
-   (and the --font-display value in global.css) for your own font any time. */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');
+/* Free Google Fonts used as the default type system — swap any of these
+   @imports (and the matching --font-* value in global.css) for your own
+   fonts any time.
+   - Anton: tall, condensed, black-weight display — the "big wordmark" role.
+   - Fraunces: a soft, slightly quirky variable serif — editorial/tagline role.
+   - IBM Plex Mono: nav links, meta labels, ticker text — the "studio" grid feel. */
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');

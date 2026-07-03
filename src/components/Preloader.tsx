@@ -94,8 +94,8 @@ export default function Preloader() {
           display: flex;
           font-family: var(--font-display);
           font-size: clamp(2rem, 6vw, 4.5rem);
-          font-weight: 700;
-          letter-spacing: -0.02em;
+          font-weight: 400;
+          letter-spacing: -0.005em;
         }
         .pre-letter-wrap {
           overflow: hidden;

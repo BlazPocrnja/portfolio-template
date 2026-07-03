@@ -49,10 +49,11 @@ export default function ThemeToggle() {
           top: 1.5rem;
           right: 1.5rem;
           z-index: 300;
-          font-size: 0.75rem;
-          font-weight: 600;
+          font-family: var(--font-mono);
+          font-size: 0.7rem;
+          font-weight: 500;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
+          letter-spacing: 0.06em;
           padding: 0.5em 0.9em;
           border: 1px solid var(--line);
           border-radius: 50px;

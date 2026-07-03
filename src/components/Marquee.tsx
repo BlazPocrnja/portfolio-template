@@ -42,8 +42,9 @@ export default function Marquee({ text, speed = 60 }: Props) {
         }
         .marquee-track {
           display: inline-flex;
-          font-size: 0.8rem;
-          letter-spacing: 0.08em;
+          font-family: var(--font-mono);
+          font-size: 0.75rem;
+          letter-spacing: 0.05em;
           text-transform: uppercase;
           color: var(--fg-dim);
         }

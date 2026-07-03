@@ -80,7 +80,8 @@ export default function ProjectsList({ projects }: Props) {
           padding: 1.1rem 0.25rem;
           border-bottom: 1px solid var(--line);
           font-family: var(--font-display);
-          font-size: clamp(1.25rem, 3vw, 2rem);
+          font-size: clamp(1.4rem, 3.2vw, 2.1rem);
+          font-weight: 400;
           transition: opacity 0.3s;
         }
         .projects-list:hover .proj-item {
@@ -90,10 +91,11 @@ export default function ProjectsList({ projects }: Props) {
           opacity: 1 !important;
         }
         .proj-item-date {
+          font-family: var(--font-mono);
           font-size: 0.8rem;
           color: var(--fg-dim);
           text-transform: uppercase;
-          letter-spacing: 0.05em;
+          letter-spacing: 0.03em;
         }
         .proj-preview {
           position: fixed;

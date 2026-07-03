@@ -10,7 +10,7 @@ import ScrollReveal from './ScrollReveal';
   </ScrollReveal>
 
   <ScrollReveal client:visible as="p" className="contact-dispo" delay={0.1}>
-    I'm available for <span class="other-accent">freelance work worldwide</span>, on
+    I'm available for <span class="other-accent">freelance work worldwide</span>, on{' '}
     <span class="other-accent">ambitious projects</span> and collaborations.
   </ScrollReveal>
 
@@ -33,8 +33,8 @@ import ScrollReveal from './ScrollReveal';
   .contact-title {
     font-family: var(--font-display);
     font-size: clamp(2.5rem, 8vw, 6rem);
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-weight: 400;
+    letter-spacing: -0.005em;
     margin-bottom: 2rem;
   }
   :global(.contact-dispo) {
@@ -49,15 +49,16 @@ import ScrollReveal from './ScrollReveal';
     margin-top: 3rem;
     flex-wrap: wrap;
     gap: 1rem;
+    font-family: var(--font-mono);
     border-top: 1px solid var(--line);
     padding-top: 1.5rem;
   }
   .contact-socials {
     display: flex;
     gap: 1.5rem;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
   }
   .contact-mail {
     font-size: 1rem;

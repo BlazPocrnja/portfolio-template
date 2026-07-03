@@ -12,9 +12,16 @@
   --line: rgba(242, 240, 236, 0.14);
 
   --font-sans: 'Inter', system-ui, sans-serif;
-  /* See public/fonts/README.md + styles/fonts.css to drop in your own
-     display face — Space Grotesk is just the default placeholder. */
-  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  /* See public/fonts/README.md + styles/fonts.css to drop in your own faces —
+     these three are free placeholders standing in for a paid type system
+     (think Druk / Kazimir / Giorgio Sans): a condensed black-weight display
+     for big wordmark moments, a soft editorial serif for taglines, and a
+     grotesk mono for nav/meta text. Anton ships one weight (400) that's
+     already visually heavy — don't set font-weight: 700 on it, that just
+     triggers ugly faux-bold. */
+  --font-display: 'Anton', 'Archivo Black', sans-serif;
+  --font-serif: 'Fraunces', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --container-pad: clamp(1.25rem, 4vw, 3rem);
 }
