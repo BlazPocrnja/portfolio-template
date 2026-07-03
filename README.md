@@ -1,10 +1,5 @@
 # Creative Developer Portfolio — Astro + React + GSAP starter
 
-A starter template in the same genre as the site you shared, built with the
-same stack (Astro islands, React for interactive bits, GSAP + ScrollTrigger,
-Lenis for smooth scroll). It's original code and placeholder content —
-nothing is copied from the reference site — so it's yours to reshape.
-
 ## What's in here
 
 | Technique in the reference site | Where it lives here |
