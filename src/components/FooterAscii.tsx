@@ -116,18 +116,35 @@ function buildAsciiGridFromImage(
 
 const LINE_HEIGHT = 1.1;
 
+/** First..last row index that has any non-blank (pool > 0) cell — the rows that are actually visible hand, not padding. */
+function contentRowSpan(grid: AsciiGrid): number {
+  let first = -1;
+  let last = -1;
+  for (let y = 0; y < grid.rows; y++) {
+    if (grid.pools[y]?.some((p) => p > 0)) {
+      if (first === -1) first = y;
+      last = y;
+    }
+  }
+  return first === -1 ? grid.rows : last - first + 1;
+}
+
 /**
- * Different art has wildly different row counts (the left hand's baked art
- * is 37 rows; the right is ~107, mostly blank padding that pushes it lower
- * in its panel). A shared fixed font-size would either overflow the tall
- * one or shrink the short one to nothing, so each panel's font-size is
- * derived from its own row count against a shared target pixel height —
- * letter-spacing stays fixed (aspect-ratio-correct), only the scale changes.
+ * Different art has wildly different total row counts (the left hand's
+ * baked art is 37 rows, nearly all hand; the right is ~107, mostly blank
+ * padding that pushes it lower in its panel). Sizing off total rows made
+ * both blocks the same overall height, which shrank the right hand to a
+ * fraction of the left's visible size — the blank padding ate the "budget".
+ * Sizing off the CONTENT span instead (ignoring blank rows) keeps the
+ * actual hand a consistent visual size regardless of how much padding
+ * surrounds it; the extra blank rows just add invisible height beyond that,
+ * which is what shifts it lower once centered in the panel.
  */
-function applyFontSizeForRows(pre: HTMLPreElement, rows: number) {
-  if (!rows) return;
-  const targetPx = Math.min(460, Math.max(260, window.innerHeight * 0.4));
-  const fontPx = targetPx / (rows * LINE_HEIGHT);
+function applyFontSizeForRows(pre: HTMLPreElement, grid: AsciiGrid) {
+  if (!grid.rows) return;
+  const span = contentRowSpan(grid);
+  const targetPx = Math.min(340, Math.max(220, window.innerHeight * 0.3));
+  const fontPx = targetPx / (span * LINE_HEIGHT);
   pre.style.fontSize = `${fontPx.toFixed(2)}px`;
 }
 
@@ -267,8 +284,12 @@ const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPan
   useImperativeHandle(ref, () => preRef.current as HTMLPreElement);
 
   useEffect(() => {
-    const pre = preRef.current;
-    if (!pre) return;
+    if (!preRef.current) return;
+    // Bind to a variable with an explicit non-nullable type: `preRef.current`
+    // is narrowed by the guard above, but that narrowing doesn't carry into
+    // the nested function declarations below (they could, in principle, be
+    // invoked at any time), so TS still sees it as possibly-null there.
+    const el: HTMLPreElement = preRef.current;
     let cancelled = false;
     let loadedImage: HTMLImageElement | null = null;
     const fallbackGrid = side === 'left' ? FALLBACK_GRID_LEFT : FALLBACK_GRID_RIGHT;
@@ -276,8 +297,8 @@ const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPan
     function applyGrid(grid: AsciiGrid) {
       if (cancelled || !grid.cols) return;
       gridRef.current = grid;
-      pre.textContent = grid.chars.map((row) => row.join('')).join('\n');
-      applyFontSizeForRows(pre, grid.rows);
+      el.textContent = grid.chars.map((row) => row.join('')).join('\n');
+      applyFontSizeForRows(el, grid);
     }
 
     function useFallback() {
@@ -326,12 +347,12 @@ const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPan
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         if (src) rebuildFromImage();
-        else applyFontSizeForRows(pre, gridRef.current.rows);
+        else applyFontSizeForRows(el, gridRef.current);
       }, 150);
     };
     window.addEventListener('resize', onResize);
 
-    const detachHover = attachHover(pre, () => gridRef.current);
+    const detachHover = attachHover(el, () => gridRef.current);
 
     return () => {
       cancelled = true;
