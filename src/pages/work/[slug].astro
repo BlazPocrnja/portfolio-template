@@ -30,8 +30,8 @@ const { project } = Astro.props;
     </div>
 
     <div class="detail-gallery">
-      {project.gallery.map((src) => (
-        <img src={src} alt="" loading="lazy" />
+      {project.gallery.map((image) => (
+        <img src={image.src} alt={image.alt} loading="lazy" />
       ))}
     </div>
   </article>
@@ -60,7 +60,9 @@ const { project } = Astro.props;
   }
   h1 {
     font-family: var(--font-display);
-    font-weight: 400;
+    /* Druk Wide ships 700/900 only (see fonts.css); a 400 declaration here
+       silently resolves to the 700 file anyway, so say what actually renders. */
+    font-weight: 700;
     font-size: clamp(2rem, 6vw, 4rem);
     letter-spacing: -0.005em;
     margin: 0;

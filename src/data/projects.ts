@@ -1,3 +1,10 @@
+export interface GalleryImage {
+  src: string;
+  // Real content, not decoration — describe what's actually in the shot
+  // ("dashboard filter panel in the open state"), not a generic label.
+  alt: string;
+}
+
 export interface Project {
   slug: string;
   title: string;
@@ -6,7 +13,7 @@ export interface Project {
   cover: string; // placeholder path, swap for real images in /public
   description: string;
   tags: string[];
-  gallery: string[];
+  gallery: GalleryImage[];
 }
 
 // Swap `cover`/`gallery` for real assets under /public/images/projects/*
@@ -24,7 +31,11 @@ export const projects: Project[] = [
     description:
       'A short one or two sentence summary of what this project is, who it was for, and what you were responsible for.',
     tags: ['Web Design', 'Development', 'Animation'],
-    gallery: [ph('project-one-a'), ph('project-one-b'), ph('project-one-c')],
+    gallery: [
+      { src: ph('project-one-a'), alt: 'Replace with a specific description of this shot — e.g. "homepage hero on desktop".' },
+      { src: ph('project-one-b'), alt: 'Replace with a specific description of this shot — e.g. "mobile navigation, open state".' },
+      { src: ph('project-one-c'), alt: 'Replace with a specific description of this shot — e.g. "detail view of the interaction pattern".' },
+    ],
   },
   {
     slug: 'project-two',
@@ -35,7 +46,10 @@ export const projects: Project[] = [
     description:
       'Replace this with real project copy. Keep it tight — one idea, one outcome.',
     tags: ['Branding', 'Interactive'],
-    gallery: [ph('project-two-a'), ph('project-two-b')],
+    gallery: [
+      { src: ph('project-two-a'), alt: 'Replace with a specific description of this shot.' },
+      { src: ph('project-two-b'), alt: 'Replace with a specific description of this shot.' },
+    ],
   },
   {
     slug: 'project-three',
@@ -45,7 +59,11 @@ export const projects: Project[] = [
     cover: ph('project-three'),
     description: 'Another placeholder entry — duplicate this shape for each real project.',
     tags: ['Mobile App', 'UI/UX'],
-    gallery: [ph('project-three-a'), ph('project-three-b'), ph('project-three-c')],
+    gallery: [
+      { src: ph('project-three-a'), alt: 'Replace with a specific description of this shot.' },
+      { src: ph('project-three-b'), alt: 'Replace with a specific description of this shot.' },
+      { src: ph('project-three-c'), alt: 'Replace with a specific description of this shot.' },
+    ],
   },
   {
     slug: 'project-four',
@@ -55,7 +73,10 @@ export const projects: Project[] = [
     cover: ph('project-four'),
     description: 'Placeholder description text for the fourth project entry.',
     tags: ['Three.js', 'WebGL'],
-    gallery: [ph('project-four-a'), ph('project-four-b')],
+    gallery: [
+      { src: ph('project-four-a'), alt: 'Replace with a specific description of this shot.' },
+      { src: ph('project-four-b'), alt: 'Replace with a specific description of this shot.' },
+    ],
   },
   {
     slug: 'project-five',
@@ -65,6 +86,9 @@ export const projects: Project[] = [
     cover: ph('project-five'),
     description: 'Placeholder description text for the fifth project entry.',
     tags: ['Full-Stack', 'Database'],
-    gallery: [ph('project-five-a'), ph('project-five-b')],
+    gallery: [
+      { src: ph('project-five-a'), alt: 'Replace with a specific description of this shot.' },
+      { src: ph('project-five-b'), alt: 'Replace with a specific description of this shot.' },
+    ],
   },
 ];

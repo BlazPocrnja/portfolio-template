@@ -104,7 +104,7 @@ export default function ProjectsList({ projects }: Props) {
           width: 220px;
           pointer-events: none;
           opacity: 0;
-          z-index: 50;
+          z-index: var(--z-preview);
           transform: translate(-50%, -50%);
         }
         .proj-card {

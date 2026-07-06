@@ -138,7 +138,7 @@ export default function ScrollProgress({ sections }: Props) {
           right: 2rem;
           top: 50%;
           transform: translateY(-50%);
-          z-index: 500;
+          z-index: var(--z-scroll-ui);
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -203,7 +203,7 @@ export default function ScrollProgress({ sections }: Props) {
           left: 2rem;
           top: 50%;
           transform: translateY(-50%);
-          z-index: 500;
+          z-index: var(--z-scroll-ui);
           font-family: var(--font-mono);
           font-size: clamp(0.65rem, 0.95vw, 0.8rem);
           letter-spacing: 0.03em;

@@ -31,6 +31,25 @@ const {
          of racing the stylesheet's own font-face fetch. -->
     <link rel="preload" href="/fonts/DrukWideCy-Bold-Web.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/DrukWideCy-Super-Web.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- IBM Plex Mono (--font-mono) from Google Fonts, loaded non-blocking: a plain
+         <link rel="stylesheet"> (or a CSS @import) would stall first paint of the
+         whole page behind this external fetch. media="print" makes the browser
+         fetch it without waiting to apply it, then the onload flips it to "all"
+         once it's ready; the <noscript> fallback covers non-JS environments. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      />
+    </noscript>
     <script is:inline>
       // Set the theme attribute before first paint so there's no flash of
       // the wrong theme. Kept as a tiny inline script (not a React effect)

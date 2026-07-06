@@ -22,6 +22,16 @@
   --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --container-pad: clamp(1.25rem, 4vw, 3rem);
+
+  /* Semantic z-index scale for the fixed/overlay layers. Ordering (not the
+     raw numbers) is the contract: preview card < intro curtain < fixed
+     chrome < scroll UI < cursor. Values inside a component's own stacking
+     context (e.g. Preloader's panels at 1/2/3) stay local and unscaled. */
+  --z-preview: 50; /* cursor-following project preview card */
+  --z-preloader: 200; /* intro curtain */
+  --z-chrome: 300; /* fixed UI chrome (theme toggle) */
+  --z-scroll-ui: 500; /* scroll progress bar + percentage readout */
+  --z-cursor: 600; /* custom cursor, above everything */
 }
 
 /* The custom ScrollProgress bar (left % readout + right section indicator)
@@ -39,6 +49,10 @@
   --bg-elevated: #e9e7e2;
   --fg: #10131a;
   --fg-dim: #5b5f6b;
+  /* Measures ~4.85:1 on --bg — passes AA (4.5:1) with modest headroom. A
+     darker #1152e8 (~5.7:1) was tried and rejected: the brighter blue is a
+     deliberate brand choice (reads "techier"), and its rarest-of-uses role
+     (.other-accent italics, selection) keeps the exposure small. */
   --accent: #155dfc;
   --line: rgba(16, 19, 26, 0.12);
 }
@@ -81,8 +95,27 @@ body {
   color: var(--fg);
   font-family: var(--font-sans);
   font-size: 16px;
-  line-height: 1.4;
+  /* 1.5 rather than the typographic-default 1.4: the native theme is light
+     text on near-black, which reads perceptually tighter and lighter than
+     dark-on-light — long-form copy (About/Contact sub-text) needs the extra
+     leading. Headings and mono labels all set their own line-height, so this
+     only reaches actual prose. */
+  line-height: 1.5;
   overflow-x: hidden;
+}
+
+/* Even line lengths on headings, no orphans in prose. `pretty` only kicks in
+   on multi-line paragraphs; single-line labels/dates are unaffected. Both are
+   progressive enhancements — browsers without support just keep greedy
+   wrapping. */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
 }
 
 /* CustomCursor.tsx replaces the native cursor on non-touch devices. `cursor`
@@ -145,6 +178,21 @@ img {
   display: inline-flex;
   vertical-align: top;
 }
+/* Every nav/social/meta label sitewide (Hero bar, Footer, ThemeToggle,
+   ProjectsList) is bare text with no padding — comfortably readable but well
+   under the 24px WCAG 2.2 touch-target minimum. This invisible hit-area
+   expansion fixes that without changing any visible sizing. The vertical
+   expansion is capped at 3px because Footer's stacked nav columns sit only
+   0.5rem (8px) apart — 3px from each neighbor leaves a 2px dead band in the
+   gap instead of overlapping tap zones (the 0.8rem labels still clear 24px:
+   ~19px line box + 3px each side). Isolated controls like ThemeToggle define
+   their own more generous override (see ThemeToggle.tsx) since they have no
+   neighbor to collide with. */
+.chr-hover::before {
+  content: '';
+  position: absolute;
+  inset: -3px -4px;
+}
 .chr-chars {
   display: inline-flex;
 }
@@ -177,11 +225,36 @@ img {
   padding: 0 var(--container-pad);
 }
 
+/* `.back-link` is defined per-page (info.astro, work/index.astro,
+   work/[slug].astro, contact.astro, 404.astro) but each instance sits alone
+   with generous surrounding space, so one shared, more generous hit-area
+   expansion here covers every occurrence — Astro's per-page scoped styles
+   still own the visible styling (color, tracking, etc.), this only adds the
+   invisible touch-target padding. */
+.back-link {
+  position: relative;
+}
+.back-link::before {
+  content: '';
+  position: absolute;
+  inset: -10px -8px;
+}
+
 button {
   font: inherit;
   color: inherit;
   background: none;
   border: none;
+}
+
+/* CustomCursor.tsx hides the native pointer, but keyboard users still tab
+   through every link/button here — without this, focus would be entirely
+   invisible sitewide. --accent clears 3:1 non-text contrast against both
+   themes' --bg, so a plain outline is enough; no need for a background/glow. */
+a:focus-visible,
+button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
 }
 
 ::selection {

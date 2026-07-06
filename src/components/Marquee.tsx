@@ -38,6 +38,12 @@ export default function Marquee({ text, speed = 60 }: Props) {
     let tween: gsap.core.Tween | null = null;
 
     async function run() {
+      // Reduced-motion fallback: the ticker text renders statically (first
+      // copy visible, overflow clipped) and the scroll-to-top button still
+      // works. Only reaches visitors with the OS-level "reduce motion"
+      // setting — everyone else gets the full ticker.
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
       if (document.fonts?.ready) {
         try {
           await document.fonts.ready;
@@ -113,7 +119,7 @@ export default function Marquee({ text, speed = 60 }: Props) {
           text-align: left;
           border-top: 1px solid var(--line);
           border-bottom: 1px solid var(--line);
-          padding: 0.6rem 0;
+          padding: 0.85rem 0;
           transition: background 0.3s ease, color 0.3s ease;
         }
         .marquee:hover {

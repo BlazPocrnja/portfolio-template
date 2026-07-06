@@ -48,7 +48,7 @@ export default function ThemeToggle() {
           position: fixed;
           top: 1.5rem;
           right: 1.5rem;
-          z-index: 300;
+          z-index: var(--z-chrome);
           font-family: var(--font-mono);
           font-size: 0.7rem;
           font-weight: 500;
@@ -58,6 +58,17 @@ export default function ThemeToggle() {
           border: 1px solid var(--line);
           border-radius: 50px;
           background: var(--bg);
+        }
+        /* Overrides the shared .chr-hover::before hit-area (global.css) with a
+           more generous one: this button sits alone in the corner with no
+           neighboring control, so unlike Footer's stacked nav there's no
+           adjacent tap zone it could collide with. Brings it up to the
+           WCAG 2.2 44px touch-target guideline without growing the visible
+           pill DESIGN.md documents at 0.5em/0.9em padding. */
+        .theme-toggle::before {
+          content: '';
+          position: absolute;
+          inset: -8px -4px;
         }
       `}</style>
     </button>

@@ -11,11 +11,13 @@
  *   - Graphik       → --font-sans     (actual body copy — About/Contact
  *     blurbs — where a plain grotesk reads better than a mono face).
  *   - IBM Plex Mono → --font-mono     (nav links, meta labels, ticker text —
- *     the technical register; imported from Google Fonts below instead of
- *     a local file).
+ *     the technical register; loaded from Google Fonts via a non-blocking
+ *     stylesheet link in Layout.astro's <head> instead of a local file. Not
+ *     a plain `@import` here: `@import` is render-blocking — it delays the
+ *     whole stylesheet (including the critical dark-bg/fg rules right below)
+ *     until the external font CSS resolves. The `<head>` link uses the
+ *     media="print" swap trick instead so it never blocks first paint.
  */
-
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
 @font-face {
   font-family: 'Austin';

@@ -22,7 +22,9 @@ import Marquee from '@/components/Marquee';
   }
   h1 {
     font-family: var(--font-display);
-    font-weight: 400;
+    /* Druk Wide ships 700/900 only (see fonts.css); a 400 declaration here
+       silently resolves to the 700 file anyway, so say what actually renders. */
+    font-weight: 700;
     font-size: clamp(1.8rem, 5vw, 3rem);
     max-width: 20ch;
   }

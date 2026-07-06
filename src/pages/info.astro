@@ -12,7 +12,6 @@ const skillGroups = [
 <Layout title="Info — Your Name">
   <section class="section-pad info-hero">
     <a href="/" class="back-link">← Home</a>
-    <span class="eyebrow">About</span>
     <h1>Creative developer, focused on interfaces, motion and detail.</h1>
     <p class="role-desc">
       I craft tailor-made web experiences where technical precision meets emotion.
@@ -60,17 +59,11 @@ const skillGroups = [
     letter-spacing: 0.05em;
     color: var(--fg-dim);
   }
-  .eyebrow {
-    display: block;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--accent);
-    margin-bottom: 0.75rem;
-  }
   h1 {
     font-family: var(--font-display);
-    font-weight: 400;
+    /* Druk Wide ships 700/900 only (see fonts.css); a 400 declaration here
+       silently resolves to the 700 file anyway, so say what actually renders. */
+    font-weight: 700;
     font-size: clamp(1.8rem, 4.5vw, 3rem);
     letter-spacing: -0.005em;
     line-height: 1.15;

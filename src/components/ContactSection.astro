@@ -1,8 +1,18 @@
 ---
 import ScrollReveal from './ScrollReveal';
+
+interface Props {
+  // Embedded on the homepage, Hero's name already carries the page's <h1>, so
+  // this section is an <h2> there. Standalone on /contact there is no other
+  // heading on the page, so that route passes 'h1' instead.
+  headingLevel?: 'h1' | 'h2';
+}
+
+const { headingLevel = 'h2' } = Astro.props;
+const Heading = headingLevel;
 ---
 <section class="contact section-pad" id="contact">
-  <div class="contact-title">Contact</div>
+  <Heading class="contact-title">Contact</Heading>
 
   <ScrollReveal client:visible as="p" className="contact-dispo">
     Looking for an <span class="other-accent">apprenticeship / role</span> starting soon.
@@ -61,7 +71,20 @@ import ScrollReveal from './ScrollReveal';
     letter-spacing: 0.03em;
   }
   .contact-mail {
+    position: relative;
     font-size: 1rem;
-    border-bottom: 1px solid var(--fg);
+  }
+  /* Invisible hit-area expansion (see global.css's .chr-hover::before for the
+     same pattern) — these links aren't wrapped in HoverLink like Hero's/
+     Footer's socials, so they need their own. 1.5rem/1rem gaps in this row
+     give enough room for -8px on every side without adjacent links overlapping. */
+  .contact-socials a {
+    position: relative;
+  }
+  .contact-socials a::before,
+  .contact-mail::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
   }
 </style>

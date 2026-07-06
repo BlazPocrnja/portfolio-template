@@ -2,7 +2,7 @@
 import ScrollReveal from './ScrollReveal';
 ---
 <section class="about section-pad" id="about">
-  <ScrollReveal client:visible as="div" className="about-text">
+  <ScrollReveal client:visible as="h2" className="about-text">
     As a <span class="other-accent">creative developer</span>, I craft tailor-made web
     experiences, blending technical precision and <span class="other-accent">emotion</span>.
   </ScrollReveal>
@@ -48,6 +48,7 @@ import ScrollReveal from './ScrollReveal';
     margin: 0 0 1.5rem;
   }
   .about-btn {
+    position: relative;
     display: inline-block;
     font-family: var(--font-mono);
     font-size: 0.85rem;
@@ -55,6 +56,13 @@ import ScrollReveal from './ScrollReveal';
     letter-spacing: 0.03em;
     border-bottom: 1px solid var(--fg);
     padding-bottom: 0.15rem;
+  }
+  /* Invisible hit-area expansion (see global.css's .chr-hover::before for the
+     same pattern) — this link sits alone before the photo, plenty of room. */
+  .about-btn::before {
+    content: '';
+    position: absolute;
+    inset: -10px -8px;
   }
   .about-photo-wrap {
     aspect-ratio: 4 / 5;

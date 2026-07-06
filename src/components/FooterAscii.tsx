@@ -163,29 +163,43 @@ function attachHover(pre: HTMLPreElement, getGrid: () => AsciiGrid) {
   let cellDuration: number[][] = [];
   let noiseCols = -1;
   let noiseRows = -1;
+  // Per-row cache of already-rendered HTML, plus the set of rows currently
+  // touched by the ripple. Only rows in `dirtyRows` get recomputed per frame —
+  // without this, tick() rebuilt every cell of the whole grid (up to ~56x107
+  // for the right hand) on every rAF while hovering, even though a single
+  // ripple only ever touches a handful of rows near the cursor.
+  let lineCache: string[] = [];
+  let dirtyRows = new Set<number>();
+  let lastGrid: AsciiGrid | null = null;
   let animating = false;
   let raf = 0;
 
   function ensureNoise(grid: AsciiGrid) {
-    if (noiseCols === grid.cols && noiseRows === grid.rows) return;
-    noiseCols = grid.cols;
-    noiseRows = grid.rows;
-    noise = [];
-    hitTime = [];
-    cellDuration = [];
-    for (let y = 0; y < grid.rows; y++) {
-      const nr: number[] = [];
-      const ht: number[] = [];
-      const cd: number[] = [];
-      for (let x = 0; x < grid.cols; x++) {
-        const h = Math.abs((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1);
-        nr.push(h * 5 - 2.5);
-        ht.push(0);
-        cd.push(h > 0.5 ? 200 : 100);
+    if (noiseCols !== grid.cols || noiseRows !== grid.rows) {
+      noiseCols = grid.cols;
+      noiseRows = grid.rows;
+      noise = [];
+      hitTime = [];
+      cellDuration = [];
+      for (let y = 0; y < grid.rows; y++) {
+        const nr: number[] = [];
+        const ht: number[] = [];
+        const cd: number[] = [];
+        for (let x = 0; x < grid.cols; x++) {
+          const h = Math.abs((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1);
+          nr.push(h * 5 - 2.5);
+          ht.push(0);
+          cd.push(h > 0.5 ? 200 : 100);
+        }
+        noise.push(nr);
+        hitTime.push(ht);
+        cellDuration.push(cd);
       }
-      noise.push(nr);
-      hitTime.push(ht);
-      cellDuration.push(cd);
+    }
+    if (grid !== lastGrid) {
+      lastGrid = grid;
+      lineCache = grid.chars.map((row) => row.map(escapeChar).join(''));
+      dirtyRows = new Set();
     }
   }
 
@@ -197,35 +211,40 @@ function attachHover(pre: HTMLPreElement, getGrid: () => AsciiGrid) {
     }
     const now = performance.now();
     let anyActive = false;
-    let html = '';
-    for (let y = 0; y < grid.rows; y++) {
+
+    for (const y of dirtyRows) {
+      let rowHtml = '';
+      let rowActive = false;
       for (let x = 0; x < grid.cols; x++) {
         const pi = grid.pools[y]?.[x] ?? -1;
         if (pi <= 0) {
-          html += ' ';
+          rowHtml += ' ';
           continue;
         }
         const last = hitTime[y]?.[x] ?? 0;
         const dur = cellDuration[y]?.[x] ?? 0;
         const elapsed = now - last;
         if (last > 0 && elapsed < dur) {
+          rowActive = true;
           anyActive = true;
           const idx = POOLS.length - 1 - pi;
           const pool = POOLS[idx] ?? ' ';
           const ch = pool[Math.floor(Math.random() * pool.length)] ?? ' ';
-          html += `<span class="fa-hit">${escapeChar(ch)}</span>`;
+          rowHtml += `<span class="fa-hit">${escapeChar(ch)}</span>`;
         } else {
-          html += escapeChar(grid.chars[y]?.[x] ?? ' ');
+          rowHtml += escapeChar(grid.chars[y]?.[x] ?? ' ');
         }
       }
-      html += '\n';
+      lineCache[y] = rowHtml;
+      if (!rowActive) dirtyRows.delete(y);
     }
-    pre.innerHTML = html;
+
+    pre.innerHTML = lineCache.join('\n');
+
     if (anyActive) {
       raf = requestAnimationFrame(tick);
     } else {
       animating = false;
-      pre.textContent = grid.chars.map((row) => row.join('')).join('\n');
     }
   }
 
@@ -251,6 +270,7 @@ function attachHover(pre: HTMLPreElement, getGrid: () => AsciiGrid) {
         const rr = radius + (noise[y]?.[x] ?? 0);
         if (dx * dx + dy * dy < rr * rr) {
           if (hitTime[y]) hitTime[y][x] = now;
+          dirtyRows.add(y);
         }
       }
     }
@@ -390,6 +410,13 @@ export default function FooterAscii({ leftSrc, rightSrc }: Props) {
     const leftPanel = leftPanelRef.current;
     const rightPanel = rightPanelRef.current;
     if (!wrap || !leftPanel || !rightPanel) return;
+
+    // Reduced-motion fallback: skip the slide-in scrub and the pointer-follow
+    // drift entirely — the hands just render in place. The hover ripple (wired
+    // in AsciiPanel) stays, since it's direct feedback to the user's own
+    // pointer, not autonomous motion. Only reaches visitors with the OS-level
+    // "reduce motion" setting.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     gsap.set(leftPanel, { xPercent: -100 });
     gsap.set(rightPanel, { xPercent: 100 });

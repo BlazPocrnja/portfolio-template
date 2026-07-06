@@ -146,7 +146,7 @@ export default function Hero() {
           </div>
 
           <div className="hero-bottom">
-            <div className="hero-name">Your Name.</div>
+            <h1 className="hero-name">Your Name.</h1>
             <div className="hero-line" />
             <div className="hero-bar">
               <div className="hero-bar-left">

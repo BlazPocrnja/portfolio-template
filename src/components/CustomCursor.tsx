@@ -93,7 +93,7 @@ export default function CustomCursor() {
           border-radius: 50%;
           background: #fff;
           pointer-events: none;
-          z-index: 999;
+          z-index: var(--z-cursor);
           mix-blend-mode: difference;
         }
         @media (hover: none) {

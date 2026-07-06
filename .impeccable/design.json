@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-06T00:00:00.000Z",
+  "title": "Design System: Creative Developer Portfolio",
+  "extensions": {
+    "colorMeta": {
+      "studio-red": { "role": "primary", "displayName": "Studio Red", "canonical": "#ff3b14", "tonalRamp": ["#2b0a04", "#4d1207", "#731b0a", "#a3260e", "#ff3b14", "#ff6a49", "#ff9a7e", "#ffcabb"] },
+      "studio-blue": { "role": "primary", "displayName": "Studio Blue", "canonical": "#155dfc", "tonalRamp": ["#050f2b", "#0a1d4d", "#0e2e73", "#1043a3", "#155dfc", "#4a80fd", "#84a6fe", "#bfcffe"] },
+      "bg": { "role": "neutral", "displayName": "Void", "canonical": "#0a0a0a", "tonalRamp": ["#000000", "#0a0a0a", "#141414", "#1f1f1f", "#3a3a3a", "#5c5c5c", "#8a8a86", "#f2f0ec"] },
+      "bg-elevated": { "role": "neutral", "displayName": "Elevated Void", "canonical": "#141414", "tonalRamp": ["#0a0a0a", "#141414", "#1f1f1f", "#2a2a2a", "#3a3a3a", "#5c5c5c", "#8a8a86", "#f2f0ec"] },
+      "fg": { "role": "neutral", "displayName": "Bone", "canonical": "#f2f0ec", "tonalRamp": ["#0a0a0a", "#3a3a3a", "#5c5c5c", "#8a8a86", "#c4c2bc", "#e0ded8", "#f2f0ec", "#ffffff"] },
+      "fg-dim": { "role": "neutral", "displayName": "Dim Bone", "canonical": "#8a8a86", "tonalRamp": ["#1f1f1e", "#3a3a38", "#565654", "#6f6f6c", "#8a8a86", "#a5a5a1", "#c4c2bc", "#e0ded8"] },
+      "bg-light": { "role": "neutral", "displayName": "Paper", "canonical": "#f7f6f3", "tonalRamp": ["#10131a", "#3a3d44", "#5b5f6b", "#8a8d94", "#c4c2bc", "#e9e7e2", "#f7f6f3", "#ffffff"] },
+      "bg-elevated-light": { "role": "neutral", "displayName": "Elevated Paper", "canonical": "#e9e7e2", "tonalRamp": ["#10131a", "#3a3d44", "#5b5f6b", "#8a8d94", "#c4c2bc", "#dedcd6", "#e9e7e2", "#f7f6f3"] },
+      "fg-light": { "role": "neutral", "displayName": "Ink", "canonical": "#10131a", "tonalRamp": ["#000000", "#10131a", "#242832", "#3a3d44", "#5b5f6b", "#8a8d94", "#c4c2bc", "#e9e7e2"] },
+      "fg-dim-light": { "role": "neutral", "displayName": "Dim Ink", "canonical": "#5b5f6b", "tonalRamp": ["#10131a", "#242832", "#3a3d44", "#494d56", "#5b5f6b", "#797d86", "#9a9da4", "#c4c2bc"] },
+      "line": { "role": "neutral", "displayName": "Hairline (dark)", "canonical": "rgba(242, 240, 236, 0.14)", "tonalRamp": [] },
+      "line-light": { "role": "neutral", "displayName": "Hairline (light)", "canonical": "rgba(16, 19, 26, 0.12)", "tonalRamp": [] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero name, footer name, section titles, contact title — one or two words at a time, 700 or 900 weight only." },
+      "serif": { "displayName": "Serif / Editorial", "purpose": "Hero tagline and About lede — the voice register, paired with italic accent emphasis." },
+      "body": { "displayName": "Body", "purpose": "About/Contact sub-copy and any long-form prose, capped ~46ch." },
+      "label": { "displayName": "Label / Mono", "purpose": "Nav, socials, dates, meta labels, theme toggle — always uppercase and tracked." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "ease-out-quart", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Default deceleration curve for reveals and transitions." },
+      { "name": "char-roll", "value": "cubic-bezier(0.87, 0, 0.13, 1)", "purpose": "Character-hover link roll (.chr-hover), 0.6s with 28ms per-character stagger." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "640px" },
+      { "name": "tablet", "value": "760px" },
+      { "name": "scroll-progress-cutoff", "value": "769px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Theme Toggle",
+      "kind": "button",
+      "refersTo": "theme-toggle",
+      "description": "Fixed top-right pill button that flips [data-theme] between dark and light; label uses the character-hover roll instead of a color hover.",
+      "html": "<button class=\"ds-theme-toggle ds-chr-hover\" aria-label=\"Switch to light mode\"><span class=\"ds-chr-wrap\"><span class=\"ds-chr-top\">Light</span><span class=\"ds-chr-bot\">Light</span></span></button>",
+      "css": ".ds-theme-toggle { position: fixed; top: 1.5rem; right: 1.5rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.5em 0.9em; border: 1px solid rgba(242,240,236,0.14); border-radius: 50px; background: #0a0a0a; color: #f2f0ec; } .ds-chr-wrap { position: relative; display: inline-block; overflow: hidden; } .ds-chr-bot { position: absolute; left: 0; top: 100%; transition: transform 0.6s cubic-bezier(0.87,0,0.13,1); } .ds-chr-top { display: block; transition: transform 0.6s cubic-bezier(0.87,0,0.13,1); } .ds-theme-toggle:hover .ds-chr-top, .ds-theme-toggle:hover .ds-chr-bot { transform: translateY(-100%); } .ds-theme-toggle:focus-visible { outline: 1px solid #ff3b14; outline-offset: 2px; }"
+    },
+    {
+      "name": "Project Row",
+      "kind": "custom",
+      "refersTo": "proj-item",
+      "description": "Borderless list row for a project entry — display-font title, mono-font date, hairline top/bottom borders, group-hover dims siblings.",
+      "html": "<a class=\"ds-proj-item\" href=\"#\"><span class=\"ds-proj-title\">Project Name</span><span class=\"ds-proj-date\">2026</span></a>",
+      "css": ".ds-proj-item { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 0.25rem; border-bottom: 1px solid rgba(242,240,236,0.14); border-top: 1px solid rgba(242,240,236,0.14); font-family: 'Druk Wide', sans-serif; font-size: clamp(1.4rem, 3.2vw, 2.1rem); font-weight: 700; color: #f2f0ec; text-decoration: none; transition: opacity 0.3s; } .ds-proj-date { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: #8a8a86; text-transform: uppercase; letter-spacing: 0.03em; } .ds-proj-item:hover { opacity: 1; }"
+    },
+    {
+      "name": "Project Preview Card",
+      "kind": "card",
+      "refersTo": "proj-card",
+      "description": "Small cursor-following preview card shown on project-row hover — the only card surface in the system.",
+      "html": "<div class=\"ds-proj-card\"><div class=\"ds-proj-meta\"><span>2026</span><span>Preview</span></div><img src=\"\" alt=\"\" /></div>",
+      "css": ".ds-proj-card { width: 220px; background: #141414; border: 1px solid rgba(242,240,236,0.14); border-radius: 4px; overflow: hidden; } .ds-proj-meta { display: flex; justify-content: space-between; padding: 0.4rem 0.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8a8a86; } .ds-proj-card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }"
+    },
+    {
+      "name": "Underline Link",
+      "kind": "custom",
+      "description": "Plain text link with a bottom-border underline as its sole affordance — no button chrome.",
+      "html": "<a class=\"ds-underline-link\" href=\"#\">More about me &rarr;</a>",
+      "css": ".ds-underline-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: #f2f0ec; text-decoration: none; border-bottom: 1px solid #f2f0ec; padding-bottom: 0.15rem; } .ds-underline-link:focus-visible { outline: 1px solid #ff3b14; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Studio Flythrough",
+    "overview": "The site opens with a literal camera flythrough — CSS-3D rings drifting toward the viewer as they scroll — and that move sets the terms for everything after it: this is a studio you move through, not a brochure you skim. The base is near-black, flat, and unapologetic; type does the shouting (Druk Wide at 900 weight, filling the viewport) while the interface chrome stays deliberately minimal — hairline borders, mono labels, no shadows, no cards-as-default. Depth is real (3D transforms, scroll-scrubbed blur) rather than faked with drop-shadows. This system explicitly rejects the sterile corporate/agency look and the generic dev-portfolio template (uniform card grids, gradient text, bento layouts, tracked-uppercase eyebrows used as decoration). It also refuses to treat any part of the practice — engineering or fine art — as a decorative aside; both get the same full-bleed, large-type treatment.",
+    "keyCharacteristics": [
+      "Near-black flat base, no shadows — depth from hairline borders and real 3D transforms only",
+      "Four-role type system, each role locked to a register (display = names/wordmarks, serif = editorial voice, sans = body copy, mono = technical/nav/label)",
+      "One accent color used sparingly (rings, italics, selection, hover glow) — never as a fill",
+      "Motion is choreographed and scroll-scrubbed (GSAP + Lenis), not just hover-state feedback",
+      "Rough-cut, borderless controls (list rows, underline links, one pill toggle) instead of card/button chrome"
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "Studio Red/Blue never fills a surface and never colors a button. It marks a single word, a hover state, or a scroll-driven glow — nothing structural.", "section": "colors" },
+      { "name": "The No-Regular-Display Rule", "body": "--font-display is set to 700 or 900 only, never 400 — Druk Wide has no regular weight, and a lighter synthetic-bold render is worse than picking one of the two real weights.", "section": "typography" },
+      { "name": "The Flat-by-Default Rule", "body": "There are no box-shadows anywhere in this system. Depth is conveyed by a one-step tonal shift (bg to bg-elevated) or a hairline border only.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep Studio Red/Blue to single words, hover glows, and selection — never a fill or a button background.",
+      "Do use the character-hover roll (.chr-hover) for short interactive labels instead of a plain color-change hover.",
+      "Do convey depth with a tonal background shift or a hairline border — never a box-shadow.",
+      "Do set --font-display to 700 or 900 only; Druk Wide has no 400 weight.",
+      "Do honor prefers-reduced-motion on every scroll-scrubbed or choreographed animation — full motion stays the default; the fallback only reaches visitors who opted in at the OS level."
+    ],
+    "donts": [
+      "Don't default to card grids for content that isn't previewing an image — the project list is borderless rows on purpose.",
+      "Don't add drop-shadows, glassmorphism, or any lifted/glowing surface treatment.",
+      "Don't use gradient text, tiny tracked uppercase eyebrows above every section, or numbered section markers as decoration.",
+      "Don't let the fine-art side of the portfolio read as a smaller or secondary section.",
+      "Don't soften the palette toward a safe corporate look — muted pastels, rounded-everything, generic SaaS blue."
+    ]
+  }
+}
