@@ -72,7 +72,7 @@ export default function Preloader() {
 
   if (skip) return null;
 
-  const name = 'Your Name.';
+  const name = 'Blaz Pocrnja.';
 
   return (
     <div ref={rootRef} className="preloader" aria-hidden="true">

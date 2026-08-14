@@ -3,9 +3,8 @@ import { gsap, ScrollTrigger, ensureGsap } from '@/lib/gsap';
 import HoverLink from './HoverLink';
 
 const SOCIALS = [
-  { label: 'GitHub', href: 'https://github.com/your-handle' },
-  { label: 'LinkedIn', href: 'https://linkedin.com/in/your-handle' },
-  { label: 'Behance', href: 'https://behance.net/your-handle' },
+  { label: 'GitHub', href: 'https://github.com/BlazPocrnja' },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/in/blaz-pocrnja' },
 ];
 
 const NAV = [
@@ -146,7 +145,7 @@ export default function Hero() {
           </div>
 
           <div className="hero-bottom">
-            <h1 className="hero-name">Your Name.</h1>
+            <h1 className="hero-name">Blaz Pocrnja.</h1>
             <div className="hero-line" />
             <div className="hero-bar">
               <div className="hero-bar-left">
