@@ -84,8 +84,16 @@ const BASE_LAYERS: SceneLayer[] = [
   { id: 'interior', z: -1040, w: 99, ar: 1.58, kind: 'interior' },
   { id: 'halo', z: -905, w: 46, ar: 1, y: -10, op: 0.9, kind: 'halo' },
   { id: 'brain', z: -890, w: 26, ar: 460 / 689, y: -11, mask: "url('/hero/brain.png')", tone: 'color-mix(in srgb, var(--fg) 96%, var(--bg))', idle: 'float' },
-  { id: 'clouds', z: -770, w: 96, ar: 3958 / 1005, y: -31, mask: "url('/hero/clouds.png')", tone: 'color-mix(in srgb, var(--fg) 46%, var(--bg))' },
-  { id: 'floor', z: -410, w: 170, ar: 1.6, y: 34, op: 0.85, kind: 'floor' },
+  /* far mountains: the twin-peak/valley motif from beside the candles, used
+     whole as one formation directly behind the brain. Width matches the
+     frieze (w:96, x:0) so both share the same left/right edges — reads as
+     one continuous painted backdrop panel, diorama-style, rather than two
+     independently-floating pieces. Sits at the deepest depth in the box
+     (right against the interior); the floor's now-opaque checker tiles
+     (see .hl-floor) hide whatever part of it would fall below the horizon. */
+  { id: 'mountains', z: -980, w: 96, ar: 620 / 345, x: 0, y: 5, mask: "url('/hero/mountains.png')", tone: 'color-mix(in srgb, var(--fg) 22%, var(--bg))' },
+  { id: 'clouds', z: -770, w: 96, ar: 3958 / 1005, y: -31, mask: "url('/hero/clouds-ink.png')", tone: 'color-mix(in srgb, var(--fg) 72%, var(--bg))' },
+  { id: 'floor', z: -410, w: 170, ar: 1.6, y: 34, kind: 'floor' },
   /* the creatures carry a light-theme ink variant: there they render as the
      original engravings (black ink on paper) instead of tonal negatives */
   { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, mask: "url('/hero/devil.png')", tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', maskLight: "url('/hero/devil-ink.png')", toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', idle: 'float-b' },
@@ -629,7 +637,12 @@ export default function Hero() {
           animation: hl-flicker 4.1s ease-in-out -1.7s infinite;
         }
         .hl-floor {
-          background: repeating-conic-gradient(color-mix(in srgb, var(--fg) 30%, transparent) 0% 25%, transparent 0% 50%);
+          /* both checker cells are OPAQUE (resolved against --bg, not
+             transparent) — either half being see-through let the mountains
+             bleed through every other tile. The floor's own mask below still
+             fades the whole plane to nothing at its far edges, which is the
+             only place scenery should show through. */
+          background: repeating-conic-gradient(color-mix(in srgb, var(--fg) 30%, var(--bg)) 0% 25%, var(--bg) 0% 50%);
           background-size: clamp(64px, 8.5vw, 118px) clamp(64px, 8.5vw, 118px);
           -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent 92%);
           mask-image: radial-gradient(closest-side, #000 45%, transparent 92%);

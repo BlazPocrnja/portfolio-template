@@ -18,14 +18,28 @@ import sharp from 'sharp';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'hero');
 
-/* slot <- { src: raw export in public/hero/, mode, flop?, rotate?, largestOnly? } */
+/* slot <- { src: raw export in public/hero/, mode, flop?, flip?, rotate?,
+ *           crop? [left,top,w,h], largestOnly?, despeckle? (min ink-blob
+ *           area in px to survive — kills scan grit along cut edges) } */
 const MAP = {
   'clouds.png': { src: 'Group 1-2.png', mode: 'material' },
+  // positive-space variant: the ink drawing itself (cloud linework + candle
+  // outlines), no solid panel behind it; despeckled so scan grit along the
+  // cut edges doesn't ride into the scene
+  'clouds-ink.png': { src: 'Group 1-2.png', mode: 'ink', despeckle: 140 },
   // largestOnly keeps just the connected figure — strips the tarot card's
   // floating stars/moon/numerals so no sky elements ride along with the prop
   'devil.png': { src: '04c0843e119df1ba5b48cf7ee0d43da7.png', mode: 'material', largestOnly: true },
   // flopped so it faces stage-center (it stands on the right side)
   'cockatrice.png': { src: '89f5a844b4a3042ba66d17bc93a00d28.png', mode: 'material', flop: true },
+  // distant mountains, as in the physical lightbox: the cloud engraving
+  // reused — candles cropped off, flipped so the wavy edge becomes the
+  // ridgeline — same POSITIVE-SPACE treatment as clouds-ink (linework only,
+  // no solid panel, despeckled) so they read as a faint far-off range behind
+  // the brain rather than a solid wall (one mirrored variant for the far side)
+  // the specific twin-peak/valley motif right beside the candle towers —
+  // already peaks-up in its native orientation, no flip needed
+  'mountains.png': { src: 'Group 1-2.png', mode: 'ink', crop: [2900, 55, 620, 345], despeckle: 140 },
   // ink variants of the creatures for the light theme: there they render as
   // the original engravings — black ink on paper — instead of negatives
   'devil-ink.png': { src: '04c0843e119df1ba5b48cf7ee0d43da7.png', mode: 'ink', largestOnly: true },
@@ -66,7 +80,7 @@ function labelComponents(alpha, width, height, thresh = 40) {
   return { labels, areas };
 }
 
-for (const [slot, { src, mode, flop, rotate, largestOnly }] of Object.entries(MAP)) {
+for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle }] of Object.entries(MAP)) {
   const srcPath = path.join(dir, src);
   try {
     await access(srcPath);
@@ -75,7 +89,9 @@ for (const [slot, { src, mode, flop, rotate, largestOnly }] of Object.entries(MA
     continue;
   }
   let pipeline = sharp(srcPath);
+  if (crop) pipeline = pipeline.extract({ left: crop[0], top: crop[1], width: crop[2], height: crop[3] });
   if (rotate) pipeline = pipeline.rotate(rotate);
+  if (flip) pipeline = pipeline.flip();
   if (flop) pipeline = pipeline.flop();
   if (mode === 'dither') {
     // white-paper sources: flatten, blur to reconstruct continuous tone from
@@ -130,6 +146,20 @@ for (const [slot, { src, mode, flop, rotate, largestOnly }] of Object.entries(MA
       out[i + 1] = 0;
       out[i + 2] = 0;
       out[i + 3] = Math.round(mask * 255);
+    }
+  }
+  if (despeckle) {
+    // kill faint scan noise, then drop ink blobs too small to be real
+    // linework — the grit along imperfect cut edges vanishes, drawing stays
+    for (let i = 0; i < width * height; i++) {
+      if (out[i * 4 + 3] < 46) out[i * 4 + 3] = 0;
+    }
+    const alpha = new Uint8Array(width * height);
+    for (let i = 0; i < width * height; i++) alpha[i] = out[i * 4 + 3];
+    const { labels, areas } = labelComponents(alpha, width, height, 40);
+    for (let i = 0; i < width * height; i++) {
+      const l = labels[i];
+      if (l !== 0 && areas[l] < despeckle) out[i * 4 + 3] = 0;
     }
   }
   if (largestOnly) {
