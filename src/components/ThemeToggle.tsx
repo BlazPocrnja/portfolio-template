@@ -28,6 +28,7 @@ export default function ThemeToggle() {
     setTheme(next);
     document.documentElement.setAttribute('data-theme', next);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'light' ? '#f7f6f3' : '#0a0a0a');
+    document.getElementById('favicon')?.setAttribute('href', next === 'light' ? '/favicon-light.svg' : '/favicon.svg');
     try {
       localStorage.setItem('theme', next);
     } catch {

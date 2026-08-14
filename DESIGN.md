@@ -70,7 +70,7 @@ components:
 
 **Creative North Star: "The Studio Flythrough"**
 
-The site opens with a literal camera flythrough — CSS-3D rings drifting toward the viewer as they scroll — and that move sets the terms for everything after it: this is a studio you move *through*, not a brochure you skim. The base is near-black, flat, and unapologetic; type does the shouting (Druk Wide at 900 weight, filling the viewport) while the interface chrome stays deliberately minimal — hairline borders, mono labels, no shadows, no cards-as-default. Depth is real (3D transforms, scroll-scrubbed blur) rather than faked with drop-shadows.
+The site opens with a literal camera flythrough — a shadow-play lightbox diorama the camera dollies into as they scroll — and that move sets the terms for everything after it: this is a studio you move *through*, not a brochure you skim. The base is near-black, flat, and unapologetic; type does the shouting (Druk Wide at 900 weight, filling the viewport) while the interface chrome stays deliberately minimal — hairline borders, mono labels, no shadows, no cards-as-default. Depth is real (3D transforms, scroll-scrubbed blur) rather than faked with drop-shadows.
 
 This system explicitly rejects the sterile corporate/agency look and the generic dev-portfolio template (uniform card grids, gradient text, bento layouts, tracked-uppercase eyebrows used as decoration). It also refuses to treat any part of the practice — engineering or fine art — as a decorative aside; both get the same full-bleed, large-type treatment.
 
@@ -148,8 +148,8 @@ Every nav/social/meta label (`HoverLink.tsx`, `.chr-hover`) is built from stacke
 ### Navigation
 - Mono-font, uppercase, tracked labels throughout (hero bar, footer columns). No visible active/current-page state beyond the character-hover interaction. Mobile: `flex-wrap` rather than a hamburger/drawer pattern — nav items simply wrap.
 
-### Hero Scene (signature component)
-CSS-3D "flythrough": a ring of bordered squares/circles (`var(--accent)` / `var(--fg)` 1px borders, no fill) animate along a z-axis via `perspective(900px)` + `translate3d`, driven by GSAP ScrollTrigger scrub rather than time-based animation. Content (name, tagline, nav) fades and blurs out over the first 12% of scroll progress. Respects `prefers-reduced-motion` by collapsing to a static 100vh section with the rings hidden entirely.
+### Hero Scene — "The Shadow Box" (signature component)
+A screen translation of a physical laser-cut lightbox: a hairline proscenium frame (with triangle-notched side rails echoing the real box's cut border) holds stacked engraving layers at real CSS depths — lit interior panel, punched-star sky, brain, cloud frieze, checkerboard floor, devil and cockatrice, two reaching hands. Scrolling dollies the camera through the frame and past each layer via `perspective` + `translate3d`, driven by GSAP ScrollTrigger scrub; each layer fades as it passes the camera, ending in the brain/glow. The artwork ships as black-on-transparent PNGs in `public/hero/` applied as CSS alpha masks colored with theme tokens, so both themes (night shadow-play in dark, paper-theatre matinee in light) come free — swap any PNG to change the cast. Idle life (candle-flicker on the glow, slow breathing on the figures) animates inner elements only, never the dolly transforms. Content (name, tagline, nav) fades and blurs out over the first 12% of scroll progress. Respects `prefers-reduced-motion` by collapsing to a static 100vh section showing the composed scene with idle animations off.
 
 ## 6. Do's and Don'ts
 

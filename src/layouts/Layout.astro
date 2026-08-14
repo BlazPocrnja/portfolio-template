@@ -23,7 +23,7 @@ const {
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="theme-color" content="#0a0a0a" />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link id="favicon" rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <!-- Druk Wide (--font-display) is used above the fold (hero name, preloader
          wordmark) and set to font-display: optional in fonts.css, which only
          avoids the fallback-then-reflow jitter if the font is already available
@@ -57,7 +57,11 @@ const {
       (function () {
         try {
           var stored = localStorage.getItem('theme');
-          document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
+          var isLight = stored === 'light';
+          document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
+          if (isLight) {
+            document.getElementById('favicon').setAttribute('href', '/favicon-light.svg');
+          }
         } catch (e) {}
       })();
 

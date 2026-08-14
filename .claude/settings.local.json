@@ -1,5 +1,4 @@
 {
-  "description": "Impeccable design detector: runs after Edit/Write/MultiEdit on UI files and surfaces findings as system reminders.",
   "hooks": {
     "PostToolUse": [
       {
@@ -13,6 +12,14 @@
           }
         ]
       }
+    ]
+  },
+  "description": "Impeccable design detector: runs after Edit/Write/MultiEdit on UI files and surfaces findings as system reminders.",
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/bpocr/AppData/Local/Temp/claude/c--Users-bpocr-Downloads-portfolio-template-portfolio-template/fba979b5-968b-4bc2-beb1-0f4e24ada74d/scratchpad/fonts/**)",
+      "Bash(base64 -w0 archivo-black.ttf)",
+      "Bash(base64 -w0 ibm-plex-mono.ttf)"
     ]
   }
 }
