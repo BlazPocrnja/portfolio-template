@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { gsap, ScrollTrigger, ensureGsap } from '@/lib/gsap';
 import HoverLink from './HoverLink';
+import HeroAsciiArt from './HeroAsciiArt';
 
 const SOCIALS = [
   { label: 'GitHub', href: 'https://github.com/BlazPocrnja' },
@@ -45,7 +46,7 @@ function mulberry32(seed: number) {
   };
 }
 
-/** Chevron rail matching the laser-cut border (Asset 1.png): a uniform
+/** Chevron rail matching the laser-cut border: a uniform
  * field of right triangles — square cells, hypotenuses forming one
  * continuous zigzag, alternately anchored to each side of the field — with
  * one margin before the element's own border-right, which is the strip's
@@ -70,6 +71,7 @@ interface SceneLayer {
   op?: number;
   mask?: string; // CSS mask url — /hero/*.png slot or data-URI
   tone?: string; // fill color for masked art
+  ascii?: string; // built /hero/*.png mask, rendered as a hoverable ascii mosaic instead of a CSS mask
   maskLight?: string; // alternate mask swapped in under the light theme
   toneLight?: string; // fill for the light-theme variant
   idle?: 'float' | 'float-b' | 'float-c' | 'hands'; // idle-animation role
@@ -83,7 +85,11 @@ interface SceneLayer {
 const BASE_LAYERS: SceneLayer[] = [
   { id: 'interior', z: -1040, w: 99, ar: 1.58, kind: 'interior' },
   { id: 'halo', z: -905, w: 46, ar: 1, y: -10, op: 0.9, kind: 'halo' },
-  { id: 'brain', z: -890, w: 26, ar: 460 / 689, y: -11, mask: "url('/hero/brain.png')", tone: 'color-mix(in srgb, var(--fg) 96%, var(--bg))', idle: 'float' },
+  /* ar tracks what build-hero-masks.mjs emits — cutout mode crops to the
+     subject, so a stale ratio here would shear it. The crop includes the
+     stem below the cerebellum, which sits the brain mass above box centre;
+     y compensates. */
+  { id: 'brain', z: -890, w: 32, ar: 750 / 908, y: -9, ascii: '/hero/brain.png', idle: 'float' },
   /* far mountains: the twin-peak/valley motif from beside the candles, used
      whole as one formation directly behind the brain. Width matches the
      frieze (w:96, x:0) so both share the same left/right edges — reads as
@@ -98,10 +104,15 @@ const BASE_LAYERS: SceneLayer[] = [
      original engravings (black ink on paper) instead of tonal negatives */
   { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, mask: "url('/hero/devil.png')", tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', maskLight: "url('/hero/devil-ink.png')", toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', idle: 'float-b' },
   { id: 'cockatrice', z: -490, w: 19, ar: 720 / 661, x: 19, y: 11, mask: "url('/hero/cockatrice.png')", tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', maskLight: "url('/hero/cockatrice-ink.png')", toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', idle: 'float-c' },
-  /* hands: one shared near-camera plane, big enough that the exports' hard
-     canvas edges sit off-screen — first-person hands entering from the wings */
-  { id: 'hand-left', z: -70, w: 44, ar: 375 / 500, x: -50, y: 20, rot: -6, mask: "url('/hero/hand-left.png')", tone: 'color-mix(in srgb, var(--fg) 88%, var(--bg))', idle: 'hands' },
-  { id: 'hand-right', z: -70, w: 44, ar: 375 / 500, x: 50, y: 10, rot: 4, mask: "url('/hero/hand-right.png')", tone: 'color-mix(in srgb, var(--fg) 88%, var(--bg))', idle: 'hands' },
+  /* hands: one shared near-camera plane — first-person hands entering from
+     the wings. `ar` MUST track what build-hero-masks.mjs actually emits
+     (photo mode crops to the subject, so the aspect follows the hand, not a
+     fixed frame); a stale ratio here shears the hand. Landscape, because a
+     reaching hand is wider than it is tall once the whole thing is in
+     frame — so these boxes are wide and mostly off-stage, with only the
+     fingers and palm reaching into view. */
+  { id: 'hand-left', z: -70, w: 46, ar: 750 / 1006, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', idle: 'hands' },
+  { id: 'hand-right', z: -70, w: 52, ar: 750 / 824, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', idle: 'hands' },
 ];
 
 /* Depth-scattered particles: ink sparkles + glowing lights (some accent,
@@ -457,6 +468,11 @@ export default function Hero() {
                     )}
                     {l.kind === 'halo' && <div className="hl-halo" />}
                     {l.kind === 'floor' && <div className="hl-floor" />}
+                    {l.ascii && (
+                      <div className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}`}>
+                        <HeroAsciiArt src={l.ascii} seed={i + 1} />
+                      </div>
+                    )}
                     {l.mask && l.kind !== 'spark' && (
                       <div className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}`}>
                         <div
@@ -696,6 +712,19 @@ export default function Hero() {
           from { transform: translateY(1.4%) rotate(-0.7deg); }
           to { transform: translateY(-2%) rotate(0.6deg); }
         }
+        /* will-change on the animated elements themselves (not just their
+           .hl ancestor) promotes each to its own compositor layer, so this
+           continuous sway transforms an already-rasterized bitmap on the
+           GPU instead of repainting on every frame — cheap for a masked
+           image, but load-bearing now that brain/hands are thousands of
+           text glyphs: without it, an unpromoted layer repaints that whole
+           subtree's content every frame just to move it, all day. */
+        .idle-float,
+        .idle-float-b,
+        .idle-float-c,
+        .idle-hands {
+          will-change: transform;
+        }
         .idle-float { animation: hl-idle-float 5.6s ease-in-out infinite alternate; }
         .idle-float-b { animation: hl-idle-float 6.8s ease-in-out -2.4s infinite alternate; }
         .idle-float-c { animation: hl-idle-float 7.6s ease-in-out -4.6s infinite alternate; }
@@ -734,7 +763,13 @@ export default function Hero() {
           pointer-events: none;
           will-change: opacity, filter;
         }
-        .hero-content > * {
+        /* Only the actual interactive bits re-enable pointer-events, not
+           whole containers like .hero-bottom — that div's empty space is
+           still a hit-testable box otherwise, and at z-index 1 it sits above
+           the canvas, shadowing hover on anything beneath it (the ascii
+           layers, once they became hoverable). Same fix as .footer-content. */
+        .hero-content a,
+        .hero-content .chr-hover {
           pointer-events: auto;
         }
         .hero-tagline {

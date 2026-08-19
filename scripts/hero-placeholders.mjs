@@ -7,7 +7,7 @@
  * dithered/stippled art works beautifully).
  *
  * Expected files (drop-in specs):
- *   clouds.png      wide frieze strip, ~2000x460
+ *   clouds-ink.png  wide frieze strip, ~2000x460
  *   devil.png       standing figure, ~520x880
  *   cockatrice.png  rooster-dragon, ~720x640
  *   brain.png       frontal brain, ~420x560
@@ -209,7 +209,7 @@ function handRightSvg() {
 
 /* ------------------------------------------------------------------ main */
 const FILES = {
-  'clouds.png': cloudsSvg(),
+  'clouds-ink.png': cloudsSvg(),
   'devil.png': devilSvg(),
   'cockatrice.png': cockatriceSvg(),
   'brain.png': brainSvg(),

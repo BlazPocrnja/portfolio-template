@@ -1,6 +1,6 @@
 /**
  * Converts the raw lightbox engravings in public/hero/ into the alpha-mask
- * PNGs the Shadow Box hero consumes. Two conversion modes, per source:
+ * PNGs the Shadow Box hero consumes. Conversion modes, per source:
  *
  *  - "material": mask = alpha x lightness. The cut panel/figure renders
  *    solid (bright wood) and the engraved INK LINES become transparent
@@ -8,6 +8,17 @@
  *    Used for the frieze and the engraved figures.
  *  - "ink": mask = alpha x darkness. The ink itself is the image — used
  *    for the dithered/stippled photographic hands.
+ *  - "cutout": a photograph already masked to transparency. Takes the
+ *    silhouette straight from the source alpha and writes the subject's
+ *    CONTINUOUS shading into the output alpha. Unlike "ink" (which has to
+ *    survive as line art) this keeps the full tonal range, which is what
+ *    the ascii mosaic samples for density — so the form reads with real
+ *    light and shadow instead of a flat silhouette. Auto-crops to the
+ *    subject's own bounds, so the layer's `ar` in Hero.tsx MUST track what
+ *    this emits or the art shears.
+ *    Requires a real alpha channel. A source still sitting on its backdrop
+ *    has to be masked first (in an editor) rather than segmented here —
+ *    that was tried, and threshold heuristics chewed the wispy edges.
  *
  * Re-run any time a source file is replaced: node scripts/build-hero-masks.mjs
  */
@@ -22,16 +33,15 @@ const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'publi
  *           crop? [left,top,w,h], largestOnly?, despeckle? (min ink-blob
  *           area in px to survive — kills scan grit along cut edges) } */
 const MAP = {
-  'clouds.png': { src: 'Group 1-2.png', mode: 'material' },
   // positive-space variant: the ink drawing itself (cloud linework + candle
   // outlines), no solid panel behind it; despeckled so scan grit along the
   // cut edges doesn't ride into the scene
-  'clouds-ink.png': { src: 'Group 1-2.png', mode: 'ink', despeckle: 140 },
+  'clouds-ink.png': { src: 'clouds-frieze-source.png', mode: 'ink', despeckle: 140 },
   // largestOnly keeps just the connected figure — strips the tarot card's
   // floating stars/moon/numerals so no sky elements ride along with the prop
-  'devil.png': { src: '04c0843e119df1ba5b48cf7ee0d43da7.png', mode: 'material', largestOnly: true },
+  'devil.png': { src: 'devil-tarot-source.png', mode: 'material', largestOnly: true },
   // flopped so it faces stage-center (it stands on the right side)
-  'cockatrice.png': { src: '89f5a844b4a3042ba66d17bc93a00d28.png', mode: 'material', flop: true },
+  'cockatrice.png': { src: 'cockatrice-tarot-source.png', mode: 'material', flop: true },
   // distant mountains, as in the physical lightbox: the cloud engraving
   // reused — candles cropped off, flipped so the wavy edge becomes the
   // ridgeline — same POSITIVE-SPACE treatment as clouds-ink (linework only,
@@ -39,17 +49,22 @@ const MAP = {
   // the brain rather than a solid wall (one mirrored variant for the far side)
   // the specific twin-peak/valley motif right beside the candle towers —
   // already peaks-up in its native orientation, no flip needed
-  'mountains.png': { src: 'Group 1-2.png', mode: 'ink', crop: [2900, 55, 620, 345], despeckle: 140 },
+  'mountains.png': { src: 'clouds-frieze-source.png', mode: 'ink', crop: [2900, 55, 620, 345], despeckle: 140 },
   // ink variants of the creatures for the light theme: there they render as
   // the original engravings — black ink on paper — instead of negatives
-  'devil-ink.png': { src: '04c0843e119df1ba5b48cf7ee0d43da7.png', mode: 'ink', largestOnly: true },
-  'cockatrice-ink.png': { src: '89f5a844b4a3042ba66d17bc93a00d28.png', mode: 'ink', flop: true },
-  'hand-left.png': { src: '20260215_113326.png', mode: 'ink' },
-  'hand-right.png': { src: '20260215_113355.png', mode: 'ink' },
-  // The user's frontal lightbox brain stipple, re-dithered at display
-  // resolution: the blur in dither mode reconstructs continuous tone from
-  // the existing dots, then Floyd-Steinberg lays down a clean new stipple.
-  'brain.png': { src: 'brain-lightbox.png', mode: 'dither' },
+  'devil-ink.png': { src: 'devil-tarot-source.png', mode: 'ink', largestOnly: true },
+  'cockatrice-ink.png': { src: 'cockatrice-tarot-source.png', mode: 'ink', flop: true },
+  // The reaching hands: masked and contrast-graded by hand, and already
+  // turned upright, so they need no transform here at all. NEVER flip or
+  // flop these — mirroring reverses handedness, so a left hand comes out as
+  // a right one, which is glaring once the mosaic renders it with enough
+  // tone to actually read as a hand.
+  'hand-left.png': { src: 'left-hand-real.png', mode: 'cutout' },
+  'hand-right.png': { src: 'right-hand-real.png', mode: 'cutout' },
+  // The brain model, masked off its backdrop by hand — its own shading
+  // carries the gyri and sulci, where the old dithered stipple flattened
+  // them to 1 bit.
+  'brain.png': { src: 'brain-real.png', mode: 'cutout' },
 };
 
 const EDGE_TRIM = 6; // px of canvas border cleared (scan/card-edge slivers)
@@ -93,46 +108,117 @@ for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle 
   if (rotate) pipeline = pipeline.rotate(rotate);
   if (flip) pipeline = pipeline.flip();
   if (flop) pipeline = pipeline.flop();
-  if (mode === 'dither') {
-    // white-paper sources: flatten, blur to reconstruct continuous tone from
-    // any existing stipple, resize to display grain
-    pipeline = pipeline.flatten({ background: '#ffffff' }).blur(1.6).resize(460);
-  }
-  pipeline = pipeline.ensureAlpha();
-  const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
-  const { width, height } = info;
+  if (mode === 'cutout') {
+    // 1200px is well past what the mosaic can resolve (it tops out near 140
+    // columns) but leaves headroom for the auto-crop to throw pixels away.
+    const { data, info } = await pipeline
+      .resize({ width: 1200, withoutEnlargement: true })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const { width, height } = info;
+    const n = width * height;
 
-  if (mode === 'dither') {
-    // tone -> 1-bit stipple: dot density follows darkness (same language as
-    // the dithered hand exports). Near-white after the flatten = paper =
-    // outside the object.
-    const dark = new Float32Array(width * height);
-    for (let i = 0; i < width * height; i++) {
-      const lum = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 3;
-      dark[i] = lum > 242 ? 0 : (1 - lum / 255) * 0.94 + 0.05;
+    // The silhouette IS the source's alpha — the background was removed by
+    // hand, so there is nothing to segment and no threshold to misjudge.
+    // That also means the matte's own antialiased edge carries straight
+    // through instead of being re-derived from a hard binary mask.
+    const matte = new Float32Array(n);
+    const lum = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      matte[i] = data[i * 4 + 3] / 255;
+      lum[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
     }
-    const out = Buffer.alloc(width * height * 4);
+
+    // Tonal stretch across the subject's OWN range, measured only over
+    // solidly-opaque pixels so the semi-transparent rim doesn't drag the
+    // endpoints. This normalises where the tones sit without touching their
+    // spacing, so contrast decisions already made in an editor survive.
+    const inside = [];
+    for (let i = 0; i < n; i++) if (matte[i] > 0.5) inside.push(lum[i]);
+    inside.sort((a, b) => a - b);
+    const lo = inside[Math.floor(inside.length * 0.03)] ?? 0;
+    const hi = inside[Math.floor(inside.length * 0.97)] ?? 255;
+    const range = Math.max(1e-4, hi - lo);
+    // Density follows LIGHT: the stage is dark and the glyphs are bone, so
+    // the lit face of the form has to be the dense part for it to read as a
+    // lit object rather than its own negative. Shadows thin out and let the
+    // scene behind show through, which is where the depth cue comes from.
+    // FLOOR keeps the darkest recess from dropping out entirely and
+    // breaking the silhouette.
+    const FLOOR = 0.2;
+    // The mosaic's own ramp costs a lot of headroom before a cell looks
+    // present: alpha picks the glyph pool (sparse punctuation low down,
+    // dense symbols only near the top) AND scales per-glyph opacity, so
+    // both compound against mid-tones. A straight tonal mapping lands most
+    // of the subject in thin marks at partial opacity and the whole thing
+    // reads as a faint smudge. Lifting with a gamma pushes the lit face up
+    // into the pools that actually render as mass. No S-curve here — the
+    // sources arrive already contrast-graded, and stacking another one on
+    // top crushes the mid-tones that carry the form.
+    const GAMMA = 0.55;
+
+    // Crop to the WHOLE subject plus a margin. An earlier version forced a
+    // fixed portrait aspect here, which cannot contain a wide hand in a
+    // landscape frame: the window sliced straight through the fingers and
+    // left a dead-straight edge of dense glyphs across them. The subject's
+    // own bounds decide the aspect instead, and the layer in Hero.tsx is
+    // authored to whatever comes out.
+    let minX = width, maxX = 0, minY = height, maxY = 0;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (matte[y * width + x] <= 0.06) continue;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const pad = Math.round(Math.max(maxX - minX, maxY - minY) * 0.04);
+    const cx = Math.max(0, minX - pad);
+    const cy = Math.max(0, minY - pad);
+    const cw = Math.min(width - cx, maxX - minX + 1 + pad * 2);
+    const ch = Math.min(height - cy, maxY - minY + 1 + pad * 2);
+    // Soften only the edges WE chose to cut. An edge that coincides with
+    // the source frame is one the subject genuinely runs off (the forearm
+    // leaving the photo), and fading there deletes real content — it ate
+    // the outer slice of the arm. Those stay hard; the subject continues
+    // past them, which is exactly what the framing wants to say.
+    const FADE = Math.max(4, Math.round(Math.min(cw, ch) * 0.03));
+    const fadeL = cx > 0 ? FADE : 0;
+    const fadeR = cx + cw < width ? FADE : 0;
+    const fadeT = cy > 0 ? FADE : 0;
+    const fadeB = cy + ch < height ? FADE : 0;
+    const rgba = Buffer.alloc(n * 4);
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = y * width + x;
-        const v = dark[i];
-        const dot = v > 0.5 ? 1 : 0;
-        const err = v - dot;
-        if (x + 1 < width) dark[i + 1] += err * 7 / 16;
-        if (y + 1 < height) {
-          if (x > 0) dark[i + width - 1] += err * 3 / 16;
-          dark[i + width] += err * 5 / 16;
-          if (x + 1 < width) dark[i + width + 1] += err * 1 / 16;
-        }
-        out[i * 4 + 3] = dot ? 255 : 0;
+        const lit = Math.min(1, Math.max(0, (lum[i] - lo) / range));
+        const shaped = Math.pow(lit, GAMMA);
+        const edge = Math.min(
+          1,
+          fadeL ? (x - cx) / fadeL : 1,
+          fadeR ? (cx + cw - 1 - x) / fadeR : 1,
+          fadeT ? (y - cy) / fadeT : 1,
+          fadeB ? (cy + ch - 1 - y) / fadeB : 1
+        );
+        const a = matte[i] * (FLOOR + shaped * (1 - FLOOR)) * Math.max(0, edge);
+        rgba[i * 4 + 3] = Math.round(Math.min(1, a) * 255);
       }
     }
-    await sharp(out, { raw: { width, height, channels: 4 } })
+
+    await sharp(rgba, { raw: { width, height, channels: 4 } })
+      .extract({ left: cx, top: cy, width: cw, height: ch })
+      .resize(750)
       .png()
       .toFile(path.join(dir, slot));
-    console.log(`built ${slot} <- ${src} (dither, ${width}x${height})`);
+    console.log(`built ${slot} <- ${src} (cutout, crop ${cw}x${ch} @ ${cx},${cy}, tone ${lo.toFixed(1)}..${hi.toFixed(1)})`);
     continue;
   }
+
+  pipeline = pipeline.ensureAlpha();
+  const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
 
   const out = Buffer.alloc(width * height * 4);
   for (let y = 0; y < height; y++) {

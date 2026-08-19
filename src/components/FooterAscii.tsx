@@ -1,35 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { gsap, ScrollTrigger, ensureGsap } from '@/lib/gsap';
 import { HAND_ASCII_LEFT, HAND_ASCII_RIGHT } from '@/data/hand-ascii';
-
-/** Character pools ordered from sparsest to densest — brightness (or, for the baked art, a reverse lookup) picks a pool; hover swaps a cell to its density mirror. */
-const POOLS = [
-  ' ',
-  '·.,',
-  ':;`-~^',
-  '=+<>?!:;',
-  '|/\\()[]{}«»',
-  '÷×±–—≈≠≤≥∞∆∇',
-  '¤†‡§¶©®™°¬',
-  '%&#$@¥€£¢',
-];
-
-interface AsciiGrid {
-  chars: string[][];
-  pools: number[][];
-  cols: number;
-  rows: number;
-}
-
-const EMPTY_GRID: AsciiGrid = { chars: [], pools: [], cols: 0, rows: 0 };
-
-function makeRng(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 16807) % 2147483647;
-    return s / 2147483647;
-  };
-}
+import { POOLS, EMPTY_GRID, buildAsciiGridFromImage, createAsciiMosaic, type AsciiGrid } from '@/lib/ascii';
 
 /** Reverse lookup: which pool a literal character belongs to, so the baked ascii art can still ripple on hover. */
 const CHAR_TO_POOL = new Map<string, number>();
@@ -42,77 +14,22 @@ function gridFromAsciiArt(rows: string[]): AsciiGrid {
   const cols = Math.max(0, ...rows.map((r) => [...r].length));
   const chars: string[][] = [];
   const pools: number[][] = [];
+  const values: number[][] = [];
   for (const row of rows) {
     const rowChars = [...row];
     while (rowChars.length < cols) rowChars.push(' ');
     chars.push(rowChars);
-    pools.push(rowChars.map((ch) => CHAR_TO_POOL.get(ch) ?? -1));
+    const rowPools = rowChars.map((ch) => CHAR_TO_POOL.get(ch) ?? -1);
+    pools.push(rowPools);
+    // No continuous brightness for baked text art — approximate it from
+    // which pool the literal character came from, so opacity still varies.
+    values.push(rowPools.map((p) => (p <= 0 ? -1 : p / (POOLS.length - 1))));
   }
-  return { chars, pools, cols, rows: chars.length };
+  return { chars, pools, values, cols, rows: chars.length };
 }
 
 const FALLBACK_GRID_LEFT = gridFromAsciiArt(HAND_ASCII_LEFT);
 const FALLBACK_GRID_RIGHT = gridFromAsciiArt(HAND_ASCII_RIGHT);
-
-/**
- * Samples a source image down to `cols` columns and maps brightness to a
- * character pool. Returns an empty grid (cols: 0) if the source can't be
- * read — e.g. a cross-origin image without CORS headers taints the canvas
- * — so the caller can fall back to the baked-in hand art.
- */
-function buildAsciiGridFromImage(
-  source: CanvasImageSource,
-  sourceW: number,
-  sourceH: number,
-  cols: number,
-  seed: number
-): AsciiGrid {
-  if (!sourceW || !sourceH) return EMPTY_GRID;
-  const rand = makeRng(seed);
-  const aspect = sourceH / sourceW;
-  const rows = Math.max(1, Math.round(cols * aspect));
-
-  const sample = document.createElement('canvas');
-  sample.width = cols;
-  sample.height = rows;
-  const sctx = sample.getContext('2d');
-  if (!sctx) return EMPTY_GRID;
-  sctx.drawImage(source, 0, 0, cols, rows);
-
-  let data: Uint8ClampedArray;
-  try {
-    data = sctx.getImageData(0, 0, cols, rows).data;
-  } catch {
-    return EMPTY_GRID;
-  }
-
-  const chars: string[][] = [];
-  const pools: number[][] = [];
-  for (let y = 0; y < rows; y++) {
-    const rowChars: string[] = [];
-    const rowPools: number[] = [];
-    for (let x = 0; x < cols; x++) {
-      const i = (y * cols + x) * 4;
-      const r = data[i] ?? 0;
-      const g = data[i + 1] ?? 0;
-      const b = data[i + 2] ?? 0;
-      const a = data[i + 3] ?? 0;
-      if (a < 15) {
-        rowChars.push(' ');
-        rowPools.push(-1);
-        continue;
-      }
-      const brightness = ((0.299 * r + 0.587 * g + 0.114 * b) / 255) * (a / 255);
-      const pi = Math.min(POOLS.length - 1, Math.floor(brightness * (POOLS.length - 1) * 0.85));
-      const pool = POOLS[pi] ?? ' ';
-      rowChars.push(pool[Math.floor(rand() * pool.length)] ?? ' ');
-      rowPools.push(pi);
-    }
-    chars.push(rowChars);
-    pools.push(rowPools);
-  }
-  return { chars, pools, cols, rows };
-}
 
 const LINE_HEIGHT = 1.1;
 
@@ -140,151 +57,13 @@ function contentRowSpan(grid: AsciiGrid): number {
  * surrounds it; the extra blank rows just add invisible height beyond that,
  * which is what shifts it lower once centered in the panel.
  */
-function applyFontSizeForRows(pre: HTMLPreElement, grid: AsciiGrid) {
+function applySizeForRows(canvas: HTMLCanvasElement, grid: AsciiGrid) {
   if (!grid.rows) return;
   const span = contentRowSpan(grid);
   const targetPx = Math.min(340, Math.max(220, window.innerHeight * 0.3));
-  const fontPx = targetPx / (span * LINE_HEIGHT);
-  pre.style.fontSize = `${fontPx.toFixed(2)}px`;
-}
-
-function escapeChar(ch: string): string {
-  if (ch === '<') return '&lt;';
-  if (ch === '>') return '&gt;';
-  if (ch === '&') return '&amp;';
-  return ch;
-}
-
-/** Wires up hover-distortion on a <pre> given its current ascii grid (read via a getter so image reloads stay live). */
-function attachHover(pre: HTMLPreElement, getGrid: () => AsciiGrid) {
-  const radius = 2.5;
-  let noise: number[][] = [];
-  let hitTime: number[][] = [];
-  let cellDuration: number[][] = [];
-  let noiseCols = -1;
-  let noiseRows = -1;
-  // Per-row cache of already-rendered HTML, plus the set of rows currently
-  // touched by the ripple. Only rows in `dirtyRows` get recomputed per frame —
-  // without this, tick() rebuilt every cell of the whole grid (up to ~56x107
-  // for the right hand) on every rAF while hovering, even though a single
-  // ripple only ever touches a handful of rows near the cursor.
-  let lineCache: string[] = [];
-  let dirtyRows = new Set<number>();
-  let lastGrid: AsciiGrid | null = null;
-  let animating = false;
-  let raf = 0;
-
-  function ensureNoise(grid: AsciiGrid) {
-    if (noiseCols !== grid.cols || noiseRows !== grid.rows) {
-      noiseCols = grid.cols;
-      noiseRows = grid.rows;
-      noise = [];
-      hitTime = [];
-      cellDuration = [];
-      for (let y = 0; y < grid.rows; y++) {
-        const nr: number[] = [];
-        const ht: number[] = [];
-        const cd: number[] = [];
-        for (let x = 0; x < grid.cols; x++) {
-          const h = Math.abs((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1);
-          nr.push(h * 5 - 2.5);
-          ht.push(0);
-          cd.push(h > 0.5 ? 200 : 100);
-        }
-        noise.push(nr);
-        hitTime.push(ht);
-        cellDuration.push(cd);
-      }
-    }
-    if (grid !== lastGrid) {
-      lastGrid = grid;
-      lineCache = grid.chars.map((row) => row.map(escapeChar).join(''));
-      dirtyRows = new Set();
-    }
-  }
-
-  function tick() {
-    const grid = getGrid();
-    if (!grid.cols) {
-      animating = false;
-      return;
-    }
-    const now = performance.now();
-    let anyActive = false;
-
-    for (const y of dirtyRows) {
-      let rowHtml = '';
-      let rowActive = false;
-      for (let x = 0; x < grid.cols; x++) {
-        const pi = grid.pools[y]?.[x] ?? -1;
-        if (pi <= 0) {
-          rowHtml += ' ';
-          continue;
-        }
-        const last = hitTime[y]?.[x] ?? 0;
-        const dur = cellDuration[y]?.[x] ?? 0;
-        const elapsed = now - last;
-        if (last > 0 && elapsed < dur) {
-          rowActive = true;
-          anyActive = true;
-          const idx = POOLS.length - 1 - pi;
-          const pool = POOLS[idx] ?? ' ';
-          const ch = pool[Math.floor(Math.random() * pool.length)] ?? ' ';
-          rowHtml += `<span class="fa-hit">${escapeChar(ch)}</span>`;
-        } else {
-          rowHtml += escapeChar(grid.chars[y]?.[x] ?? ' ');
-        }
-      }
-      lineCache[y] = rowHtml;
-      if (!rowActive) dirtyRows.delete(y);
-    }
-
-    pre.innerHTML = lineCache.join('\n');
-
-    if (anyActive) {
-      raf = requestAnimationFrame(tick);
-    } else {
-      animating = false;
-    }
-  }
-
-  function onMove(e: MouseEvent) {
-    const grid = getGrid();
-    if (!grid.cols) return;
-    ensureNoise(grid);
-    const rect = pre.getBoundingClientRect();
-    const charW = rect.width / grid.cols;
-    const charH = rect.height / grid.rows;
-    const mxC = (e.clientX - rect.left) / charW;
-    const myC = (e.clientY - rect.top) / charH;
-    const now = performance.now();
-    const maxR = radius + 3;
-    const yMin = Math.max(0, Math.floor(myC - maxR));
-    const yMax = Math.min(grid.rows - 1, Math.ceil(myC + maxR));
-    const xMin = Math.max(0, Math.floor(mxC - maxR));
-    const xMax = Math.min(grid.cols - 1, Math.ceil(mxC + maxR));
-    for (let y = yMin; y <= yMax; y++) {
-      for (let x = xMin; x <= xMax; x++) {
-        const dx = x - mxC;
-        const dy = y - myC;
-        const rr = radius + (noise[y]?.[x] ?? 0);
-        if (dx * dx + dy * dy < rr * rr) {
-          if (hitTime[y]) hitTime[y][x] = now;
-          dirtyRows.add(y);
-        }
-      }
-    }
-    if (!animating) {
-      animating = true;
-      tick();
-    }
-  }
-
-  pre.addEventListener('mousemove', onMove);
-  return () => {
-    pre.removeEventListener('mousemove', onMove);
-    cancelAnimationFrame(raf);
-  };
+  const cellPx = targetPx / (span * LINE_HEIGHT);
+  canvas.style.width = `${(grid.cols * cellPx).toFixed(2)}px`;
+  canvas.style.height = `${(grid.rows * cellPx).toFixed(2)}px`;
 }
 
 interface AsciiPanelProps {
@@ -298,27 +77,29 @@ interface AsciiPanelProps {
  * back to the baked-in hand art if no src is given, it fails to load, or it
  * can't be sampled (e.g. a cross-origin image without CORS).
  */
-const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPanel({ side, src }, ref) {
-  const preRef = useRef<HTMLPreElement>(null);
+const AsciiPanel = forwardRef<HTMLCanvasElement, AsciiPanelProps>(function AsciiPanel({ side, src }, ref) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const gridRef = useRef<AsciiGrid>(EMPTY_GRID);
-  useImperativeHandle(ref, () => preRef.current as HTMLPreElement);
+  useImperativeHandle(ref, () => canvasRef.current as HTMLCanvasElement);
 
   useEffect(() => {
-    if (!preRef.current) return;
-    // Bind to a variable with an explicit non-nullable type: `preRef.current`
+    if (!canvasRef.current) return;
+    // Bind to a variable with an explicit non-nullable type: `canvasRef.current`
     // is narrowed by the guard above, but that narrowing doesn't carry into
     // the nested function declarations below (they could, in principle, be
     // invoked at any time), so TS still sees it as possibly-null there.
-    const el: HTMLPreElement = preRef.current;
+    const el: HTMLCanvasElement = canvasRef.current;
     let cancelled = false;
     let loadedImage: HTMLImageElement | null = null;
     const fallbackGrid = side === 'left' ? FALLBACK_GRID_LEFT : FALLBACK_GRID_RIGHT;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const mosaic = createAsciiMosaic(el, { churn: reducedMotion ? 0 : 0.1 });
 
     function applyGrid(grid: AsciiGrid) {
       if (cancelled || !grid.cols) return;
       gridRef.current = grid;
-      el.textContent = grid.chars.map((row) => row.join('')).join('\n');
-      applyFontSizeForRows(el, grid);
+      applySizeForRows(el, grid);
+      mosaic.setGrid(grid);
     }
 
     function useFallback() {
@@ -366,23 +147,25 @@ const AsciiPanel = forwardRef<HTMLPreElement, AsciiPanelProps>(function AsciiPan
     const onResize = () => {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
-        if (src) rebuildFromImage();
-        else applyFontSizeForRows(el, gridRef.current);
+        if (src) {
+          rebuildFromImage();
+        } else {
+          applySizeForRows(el, gridRef.current);
+          mosaic.resize();
+        }
       }, 150);
     };
     window.addEventListener('resize', onResize);
 
-    const detachHover = attachHover(el, () => gridRef.current);
-
     return () => {
       cancelled = true;
-      detachHover();
+      mosaic.destroy();
       window.removeEventListener('resize', onResize);
       window.clearTimeout(resizeTimer);
     };
   }, [side, src]);
 
-  return <pre ref={preRef} className={`footer-ascii footer-ascii-${side}`} aria-hidden="true" />;
+  return <canvas ref={canvasRef} className={`footer-ascii footer-ascii-${side}`} aria-hidden="true" />;
 });
 
 interface Props {
@@ -401,8 +184,8 @@ export default function FooterAscii({ leftSrc, rightSrc }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
-  const leftPreRef = useRef<HTMLPreElement>(null);
-  const rightPreRef = useRef<HTMLPreElement>(null);
+  const leftPreRef = useRef<HTMLCanvasElement>(null);
+  const rightPreRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     ensureGsap();
@@ -508,30 +291,20 @@ export default function FooterAscii({ leftSrc, rightSrc }: Props) {
         .footer-ascii-panel.right {
           justify-content: flex-end;
         }
+        /* Square cells are the art's authoring assumption — the hand shape
+           shears if they aren't. The canvas box is sized in JS to
+           cols x rows of one cell (applySizeForRows), so the aspect is set
+           there and this rule only carries color and behavior. */
         .footer-ascii {
-          /* letter-spacing 0.5em is load-bearing, not decorative: a
-             monospace glyph's advance is ~0.6em, so 0.6 + 0.5 = 1.1em wide —
-             matching line-height 1.1 gives a roughly square character cell.
-             That's the aspect ratio this art was authored against; a
-             smaller letter-spacing (however tempting for fit) squashes the
-             hand shape horizontally instead of just shrinking it. Fit is
-             controlled by font-size alone. */
-          font-family: Consolas, Menlo, monospace;
-          font-size: clamp(0.26rem, 0.5vw, 0.42rem);
-          line-height: 1.1;
-          letter-spacing: 0.5em;
+          display: block;
           color: var(--accent);
+          --ascii-hit-bg: var(--accent);
+          --ascii-hit-fg: var(--bg);
           opacity: 0.85;
-          white-space: pre;
           user-select: none;
           pointer-events: auto;
           cursor: none;
-          margin: 0;
           will-change: transform;
-        }
-        .fa-hit {
-          color: var(--bg);
-          background: var(--accent);
         }
         @media (max-width: 1200px) {
           .footer-ascii-panel.right {
