@@ -366,8 +366,8 @@ export default function Hero() {
         .from(prop('clouds'), { yPercent: -180, duration: 1.0, ...ir }, 0.5)
         .from(prop('halo'), { opacity: 0, duration: 1.0, ...ir }, 0.8)
         .from(prop('brain'), { yPercent: 55, opacity: 0, duration: 1.0, ease: 'power2.out', ...ir }, 0.8)
-        .from(prop('devil'), { yPercent: -140, duration: 0.75, ease: 'back.out(1.3)', ...ir }, 1.15)
-        .from(prop('cockatrice'), { yPercent: -140, duration: 0.75, ease: 'back.out(1.3)', ...ir }, 1.35)
+        .from(prop('devil'), { yPercent: -140, opacity: 0, duration: 0.75, ease: 'back.out(1.3)', ...ir }, 1.15)
+        .from(prop('cockatrice'), { yPercent: -140, opacity: 0, duration: 0.75, ease: 'back.out(1.3)', ...ir }, 1.35)
         .from(prop('hand-left'), { xPercent: -75, opacity: 0, duration: 0.9, ...ir }, 1.55)
         .from(prop('hand-right'), { xPercent: 75, opacity: 0, duration: 0.9, ...ir }, 1.7)
         .from(q('[data-spark]'), { opacity: 0, scale: 0.5, duration: 0.7, stagger: 0.045, ...ir }, 0.75);
