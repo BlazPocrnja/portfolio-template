@@ -1,6 +1,7 @@
 /**
- * Converts the raw lightbox engravings in public/hero/ into the alpha-mask
- * PNGs the Shadow Box hero consumes. Conversion modes, per source:
+ * Converts the raw lightbox engravings in art-src/hero/ into the alpha-mask
+ * PNGs the Shadow Box hero consumes, written to public/hero/. Modes, per
+ * source:
  *
  *  - "material": mask = alpha x lightness. The cut panel/figure renders
  *    solid (bright wood) and the engraved INK LINES become transparent
@@ -27,9 +28,16 @@ import { access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
-const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'hero');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+/* Raw camera/scan art lives OUTSIDE public/ on purpose. Anything under
+   public/ is copied verbatim into the build, so keeping the sources there
+   published ~21MB of files no browser ever requests — 85% of the whole
+   deploy. Drop new source art in art-src/hero/; only the built masks below
+   belong in public/hero/. */
+const srcDir = path.join(root, 'art-src', 'hero');
+const dir = path.join(root, 'public', 'hero');
 
-/* slot <- { src: raw export in public/hero/, mode, flop?, flip?, rotate?,
+/* slot <- { src: raw export in art-src/hero/, mode, flop?, flip?, rotate?,
  *           crop? [left,top,w,h], largestOnly?, despeckle? (min ink-blob
  *           area in px to survive — kills scan grit along cut edges) } */
 const MAP = {
@@ -96,7 +104,7 @@ function labelComponents(alpha, width, height, thresh = 40) {
 }
 
 for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle }] of Object.entries(MAP)) {
-  const srcPath = path.join(dir, src);
+  const srcPath = path.join(srcDir, src);
   try {
     await access(srcPath);
   } catch {
@@ -270,7 +278,7 @@ for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle 
 /* ---- star glyphs: slice stars.png into individual particle masks ------- */
 const GLYPH_COUNT = 8;
 try {
-  const starsSrc = path.join(dir, 'stars.png');
+  const starsSrc = path.join(srcDir, 'stars.png');
   await access(starsSrc);
   const { data, info } = await sharp(starsSrc)
     .flatten({ background: '#ffffff' })
