@@ -1,8 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { buildAsciiGridFromImage, createAsciiMosaic } from '@/lib/ascii';
+import { createLineScreen } from '@/lib/linescreen';
 
 const TARGET_CELL_PX = 7; // ON-SCREEN glyph cell width to solve for — fine enough to keep the finger separation legible, coarse enough that each glyph still reads as a mark
 const MAX_COLS = 140; // near-camera layers (the reaching hands) sit in a box far larger than the viewport, off-screen edges included — this bounds the grid instead of sampling detail nobody sees
+
+/* Line-screen grain, in CSS px: PIXEL is the nearest-neighbour upscale
+   (how chunky each rendered pixel looks) and LANE * PIXEL is the distance
+   between line centres on screen. Both live here rather than in the
+   renderer so the hero's grain is tuned next to the ascii cell size it
+   sits beside. */
+const LINE_PIXEL = 1.5;
+const LINE_PITCH = 5;
 
 interface Props {
   /** Built alpha-mask PNG in /hero (brain.png, hand-left.png, ...) — NOT the raw -source.png, which hasn't been through build-hero-masks.mjs's alpha extraction yet. */
@@ -11,6 +20,9 @@ interface Props {
   seed?: number;
   /** Ripple radius in grid cells for the hover glitch. */
   hoverRadius?: number;
+  /** Which renderer draws this layer. 'ascii' is the symbol mosaic;
+   * 'lines' is the engraving-style line screen (see lib/linescreen.ts). */
+  variant?: 'ascii' | 'lines';
 }
 
 /**
@@ -28,7 +40,7 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3 }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii' }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -40,7 +52,10 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3 }: Props)
     let cancelled = false;
     let loadedImage: HTMLImageElement | null = null;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const mosaic = createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
+    const renderer =
+      variant === 'lines'
+        ? createLineScreen(canvas, { pixel: LINE_PIXEL, pitch: LINE_PITCH })
+        : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
 
     // Cols is solved from the box's ACTUAL ON-SCREEN width (getBoundingClientRect,
     // post-perspective) rather than clientWidth or a fixed constant. clientWidth
@@ -53,10 +68,16 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3 }: Props)
       if (!loadedImage || !wrap) return;
       const visualWidth = wrap.getBoundingClientRect().width;
       if (!visualWidth) return;
+      if (variant === 'lines') {
+        // The screen rasterises straight off the source image at its own
+        // resolution, so there is no grid for the caller to solve here.
+        (renderer as ReturnType<typeof createLineScreen>).setImage(loadedImage);
+        return;
+      }
       const cols = Math.min(MAX_COLS, Math.max(16, Math.round(visualWidth / TARGET_CELL_PX)));
       const next = buildAsciiGridFromImage(loadedImage, loadedImage.naturalWidth, loadedImage.naturalHeight, cols, seed, 'alpha');
       if (!next.cols) return;
-      mosaic.setGrid(next);
+      (renderer as ReturnType<typeof createAsciiMosaic>).setGrid(next);
     }
 
     const img = new Image();
@@ -77,10 +98,10 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3 }: Props)
     return () => {
       cancelled = true;
       ro.disconnect();
-      mosaic.destroy();
+      renderer.destroy();
       window.clearTimeout(resizeTimer);
     };
-  }, [src, seed, hoverRadius]);
+  }, [src, seed, hoverRadius, variant]);
 
   return (
     <div ref={wrapRef} className="hero-ascii-art-wrap">
@@ -101,8 +122,13 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3 }: Props)
           color: color-mix(in srgb, var(--fg) 96%, var(--bg));
           --ascii-hit-bg: var(--accent);
           --ascii-hit-fg: var(--bg);
+          /* line-screen ink strength — see lib/linescreen.ts */
+          --linescreen-alpha: 0.55;
           pointer-events: auto;
           cursor: none;
+        }
+        :root[data-theme='light'] .hero-ascii-art {
+          --linescreen-alpha: 0.9;
         }
       ` }} />
     </div>

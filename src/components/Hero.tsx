@@ -72,6 +72,7 @@ interface SceneLayer {
   mask?: string; // CSS mask url — /hero/*.png slot or data-URI
   tone?: string; // fill color for masked art
   ascii?: string; // built /hero/*.png mask, rendered as a hoverable ascii mosaic instead of a CSS mask
+  render?: 'ascii' | 'lines'; // which renderer draws `ascii` — symbol mosaic (default) or engraving line screen
   maskLight?: string; // alternate mask swapped in under the light theme
   toneLight?: string; // fill for the light-theme variant
   idle?: 'float' | 'float-b' | 'float-c' | 'hands'; // idle-animation role
@@ -111,8 +112,8 @@ const BASE_LAYERS: SceneLayer[] = [
      reaching hand is wider than it is tall once the whole thing is in
      frame — so these boxes are wide and mostly off-stage, with only the
      fingers and palm reaching into view. */
-  { id: 'hand-left', z: -70, w: 46, ar: 750 / 1006, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', idle: 'hands' },
-  { id: 'hand-right', z: -70, w: 52, ar: 750 / 824, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', idle: 'hands' },
+  { id: 'hand-left', z: -70, w: 46, ar: 750 / 1006, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', render: 'lines', idle: 'hands' },
+  { id: 'hand-right', z: -70, w: 52, ar: 750 / 824, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', render: 'lines', idle: 'hands' },
 ];
 
 /* Depth-scattered particles: ink sparkles + glowing lights (some accent,
@@ -470,7 +471,7 @@ export default function Hero() {
                     {l.kind === 'floor' && <div className="hl-floor" />}
                     {l.ascii && (
                       <div className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}`}>
-                        <HeroAsciiArt src={l.ascii} seed={i + 1} />
+                        <HeroAsciiArt src={l.ascii} seed={i + 1} variant={l.render ?? 'ascii'} />
                       </div>
                     )}
                     {l.mask && l.kind !== 'spark' && (
