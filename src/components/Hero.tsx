@@ -56,9 +56,60 @@ const RAIL = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 72"><path d="M0 0 L0 36 L36.4 36 Z" fill="#000"/><path d="M36.4 36 L36.4 72 L0 72 Z" fill="#000"/><rect x="36" y="0" width="1.4" height="72" fill="#000"/></svg>'
 )}")`;
 
-/** Hand-drawn star glyphs sliced from the user's stars.png sheet by
- * scripts/build-hero-masks.mjs — real ink shapes, not procedural stars. */
-const SPARK_GLYPHS = Array.from({ length: 8 }, (_, i) => `url('/hero/spark-${i}.png')`);
+/* ---- sky glyphs -------------------------------------------------------
+ *
+ * The star field is plotted on a pixel grid, not drawn. It used to be ink
+ * sparkles sliced off a scanned sheet, which read as hand-drawn stars in a
+ * scene whose figures are now screened into x/+ stitches — the sky was the
+ * one organic thing left in it. These marks come off the SAME alphabet as
+ * the stitch screen (lib/halftone.ts), so the night sky and the creatures
+ * are made of the same vocabulary at two different scales.
+ *
+ * Unit squares on an NxN viewBox, sized so each mark fills its own box: a
+ * 1x1 point stays a hard pixel at dust scale, where a 5x5 asterisk shrunk
+ * to the same width would just smear into a grey smudge.
+ */
+function pixelGlyph(size: number, cells: readonly (readonly [number, number])[]): string {
+  const rects = cells.map(([x, y]) => `<rect x="${x}" y="${y}" width="1" height="1"/>`).join('');
+  return `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges">${rects}</svg>`
+  )}")`;
+}
+
+/** Diagonals of an NxN grid — the x. */
+function xCells(size: number) {
+  const out: [number, number][] = [];
+  for (let i = 0; i < size; i++) {
+    out.push([i, i]);
+    out.push([i, size - 1 - i]);
+  }
+  return out;
+}
+
+/** Centre row + centre column — the +. */
+function plusCells(size: number) {
+  const c = (size - 1) / 2;
+  const out: [number, number][] = [];
+  for (let i = 0; i < size; i++) {
+    out.push([c, i]);
+    out.push([i, c]);
+  }
+  return out;
+}
+
+/* Ordered LARGEST/most-featured first — the scatter below slices this array
+ * by depth (near particles take the feature marks, dust takes the tail), so
+ * the ordering is load-bearing, not cosmetic. */
+const SPARK_GLYPHS = [
+  pixelGlyph(5, [...xCells(5), ...plusCells(5)]), // asterisk
+  pixelGlyph(5, xCells(5)), // x
+  pixelGlyph(5, plusCells(5)), // +
+  pixelGlyph(3, [[0, 0], [1, 0], [2, 0], [0, 1], [2, 1], [0, 2], [1, 2], [2, 2]]), // hollow square — a registration mark
+  pixelGlyph(3, xCells(3)), // small x
+  pixelGlyph(3, plusCells(3)), // small +
+  pixelGlyph(2, [[0, 0], [1, 0], [0, 1], [1, 1]]), // solid square
+  pixelGlyph(1, [[0, 0]]), // single pixel
+];
 
 interface SceneLayer {
   id: string;
@@ -72,7 +123,9 @@ interface SceneLayer {
   mask?: string; // CSS mask url — /hero/*.png slot or data-URI
   tone?: string; // fill color for masked art
   ascii?: string; // built /hero/*.png mask, rendered as a hoverable ascii mosaic instead of a CSS mask
-  render?: 'ascii' | 'lines'; // which renderer draws `ascii` — symbol mosaic (default) or engraving line screen
+  asciiLight?: string; // alternate `ascii` source swapped in under the light theme
+  ink?: number; // per-layer screen ink strength (see HeroAsciiArt's `ink`)
+  render?: 'ascii' | 'lines' | 'dots' | 'cross' | 'dither'; // which renderer draws `ascii` — symbol mosaic (default), engraving line screen, halftone dot screen, stitched glyph screen, or the art as-authored with a hover glitch
   maskLight?: string; // alternate mask swapped in under the light theme
   toneLight?: string; // fill for the light-theme variant
   idle?: 'float' | 'float-b' | 'float-c' | 'hands'; // idle-animation role
@@ -81,16 +134,18 @@ interface SceneLayer {
   lightc?: string; // glow color family for 'light' sparks
   dur?: number; // spark twinkle duration
   delay?: number; // spark twinkle phase offset
+  flick?: number; // which twinkle rhythm (0-2) — see the hl-twinkle keyframes
 }
 
 const BASE_LAYERS: SceneLayer[] = [
   { id: 'interior', z: -1040, w: 99, ar: 1.58, kind: 'interior' },
   { id: 'halo', z: -905, w: 46, ar: 1, y: -10, op: 0.9, kind: 'halo' },
-  /* ar tracks what build-hero-masks.mjs emits — cutout mode crops to the
-     subject, so a stale ratio here would shear it. The crop includes the
-     stem below the cerebellum, which sits the brain mass above box centre;
-     y compensates. */
-  { id: 'brain', z: -890, w: 32, ar: 750 / 908, y: -9, ascii: '/hero/brain.png', idle: 'float' },
+  /* The hand-dithered engraving, at the geometry it was authored for — `ar`
+     is the file's own 460x689 and MUST track it or the stipple shears, which
+     on a 1-bit dot pattern shows up instantly as moire. Drawn as itself
+     rather than re-screened: the Photoshop dither already carries the
+     texture, and its contrast beats anything derived from a photo. */
+  { id: 'brain', z: -890, w: 26, ar: 460 / 689, y: -11, ascii: '/hero/brain.png', render: 'cross', idle: 'float' },
   /* far mountains: the twin-peak/valley motif from beside the candles, used
      whole as one formation directly behind the brain. Width matches the
      frieze (w:96, x:0) so both share the same left/right edges — reads as
@@ -98,22 +153,33 @@ const BASE_LAYERS: SceneLayer[] = [
      independently-floating pieces. Sits at the deepest depth in the box
      (right against the interior); the floor's now-opaque checker tiles
      (see .hl-floor) hide whatever part of it would fall below the horizon. */
-  { id: 'mountains', z: -980, w: 96, ar: 620 / 345, x: 0, y: 5, mask: "url('/hero/mountains.png')", tone: 'color-mix(in srgb, var(--fg) 22%, var(--bg))' },
-  { id: 'clouds', z: -770, w: 96, ar: 3958 / 1005, y: -31, mask: "url('/hero/clouds-ink.png')", tone: 'color-mix(in srgb, var(--fg) 72%, var(--bg))' },
+  /* `ink` does the recessing the old flat `tone: fg 22%` used to. A screen
+     inks at its own strength, and at full strength a 96%-wide panel at the
+     back of the box stops being a distant range and becomes a lit wall
+     behind the whole scene. */
+  { id: 'mountains', z: -980, w: 96, ar: 620 / 345, x: 0, y: 5, ascii: '/hero/mountains.png', render: 'cross', ink: 0.24 },
+  /* Inks near full: the frieze is hairline cloud linework, and a screen
+     that averages hairlines into 6px cells lands them mid-ramp — at the
+     shared strength the whole band greyed out and stopped holding the top
+     of the scene. */
+  { id: 'clouds', z: -770, w: 96, ar: 3958 / 1005, y: -31, ascii: '/hero/clouds-ink.png', render: 'cross', ink: 0.95 },
   { id: 'floor', z: -410, w: 170, ar: 1.6, y: 34, kind: 'floor' },
-  /* the creatures carry a light-theme ink variant: there they render as the
+  /* the creatures are screened rather than flat-masked — the same printed
+     treatment as the hands used to wear: the engraving line screen, so the
+     two figures read as hatched prints rather than solid silhouettes.
+     Each carries a light-theme ink variant: there they render as the
      original engravings (black ink on paper) instead of tonal negatives */
-  { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, mask: "url('/hero/devil.png')", tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', maskLight: "url('/hero/devil-ink.png')", toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', idle: 'float-b' },
-  { id: 'cockatrice', z: -490, w: 19, ar: 720 / 661, x: 19, y: 11, mask: "url('/hero/cockatrice.png')", tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', maskLight: "url('/hero/cockatrice-ink.png')", toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', idle: 'float-c' },
+  { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, ascii: '/hero/devil.png', asciiLight: '/hero/devil-ink.png', render: 'lines', idle: 'float-b' },
+  { id: 'cockatrice', z: -490, w: 19, ar: 720 / 661, x: 19, y: 11, ascii: '/hero/cockatrice.png', asciiLight: '/hero/cockatrice-ink.png', render: 'lines', idle: 'float-c' },
   /* hands: one shared near-camera plane — first-person hands entering from
-     the wings. `ar` MUST track what build-hero-masks.mjs actually emits
-     (photo mode crops to the subject, so the aspect follows the hand, not a
-     fixed frame); a stale ratio here shears the hand. Landscape, because a
-     reaching hand is wider than it is tall once the whole thing is in
-     frame — so these boxes are wide and mostly off-stage, with only the
-     fingers and palm reaching into view. */
-  { id: 'hand-left', z: -70, w: 46, ar: 750 / 1006, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', render: 'lines', idle: 'hands' },
-  { id: 'hand-right', z: -70, w: 52, ar: 750 / 824, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', render: 'lines', idle: 'hands' },
+     the wings, at the framing the dithered exports were authored for. `ar`
+     is the files' own 375x500 and MUST track it; the earlier photo cutouts
+     cropped to the subject, which is why they came out both differently
+     shaped and much larger on screen. The box is sized so the exports' hard
+     canvas edges sit off-stage, with only the fingers and palm reaching in.
+     `ink` carries the weight the old flat `tone: fg 88%` used to. */
+  { id: 'hand-left', z: -70, w: 44, ar: 375 / 500, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', render: 'cross', ink: 0.85, idle: 'hands' },
+  { id: 'hand-right', z: -70, w: 44, ar: 375 / 500, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', render: 'cross', ink: 0.85, idle: 'hands' },
 ];
 
 /* Depth-scattered particles: ink sparkles + glowing lights (some accent,
@@ -129,24 +195,35 @@ const SPARKS: SceneLayer[] = [];
     attempts++;
     const light = sprng() < 0.45;
     const z = -(380 + sprng() * 570);
-    // lights stay small — points in the dark, not billboards
-    const w = light ? 1.3 + sprng() * 1.8 : 1.1 + sprng() * 1.7;
+    // Roughly half the old widths. The scanned sparkles carried 8px of
+    // transparent margin inside their own box, so a `w` of 3 drew a much
+    // smaller star than it claimed; these marks run edge to edge, and left
+    // at the old numbers they render as billboards rather than as points in
+    // the dark.
+    const w = light ? 0.7 + sprng() * 0.85 : 0.6 + sprng() * 0.8;
     const x = -44 + sprng() * 88;
     const y = -26 + sprng() * 52;
     const op = 0.5 + sprng() * 0.5;
     const dur = 2.2 + sprng() * 2.6;
     const delay = -sprng() * 4;
-    // big particles stick to the drawn star shapes (glyphs are sorted by
-    // area, largest first); the round ink dots only ever appear tiny
-    const glyph = Math.floor(sprng() * (w > 1.6 ? 4 : SPARK_GLYPHS.length));
+    // A LIT particle is restricted to the three feature marks. A glowing
+    // solid square reads as a rendering artifact — a blown-out white box —
+    // where a glowing asterisk still reads as a star.
+    const gr = sprng();
+    const glyph = light ? Math.floor(gr * 3) : Math.floor(gr * SPARK_GLYPHS.length);
     sprng(); // retained draw — keeps the seeded layout stable
     // min projected spacing (y is in stage-height %, so scale to width units)
     if (SPARKS.some((s) => Math.hypot(s.x! - x, (s.y! - y) * 0.625) < 10)) continue;
-    // no rotation — drawn stars keep their tips pointing up, like the sheet.
+    // no rotation — the marks are axis-aligned by construction, and turning
+    // one off its grid is what would make it read as a drawn star again.
     // all lights glow uncolored (bone in dark, ink in light) — the accent
     // belongs to the big ember glow alone
     SPARKS.push({
       id: `spark-${SPARKS.length}`, z, w, ar: 1, x, y, op, dur, delay,
+      // rhythm from the INDEX, not the rng: the three fields each start on a
+      // different one, so no two neighbouring particles blink in lockstep and
+      // the seeded layout stays byte-identical.
+      flick: SPARKS.length % 3,
       kind: 'spark', spark: light ? 'light' : 'star',
       mask: SPARK_GLYPHS[glyph],
       tone: 'color-mix(in srgb, var(--fg) 85%, var(--bg))',
@@ -167,17 +244,21 @@ const SPARKS: SceneLayer[] = [];
     attempts++;
     const light = sprng() < 0.25;
     const z = -(900 + sprng() * 130);
-    const w = 0.45 + sprng() * 0.75;
+    const w = 0.3 + sprng() * 0.5;
     const x = -46 + sprng() * 92;
     const y = -30 + sprng() * 58;
     const op = 0.3 + sprng() * 0.4;
     const dur = 2.8 + sprng() * 3.2;
     const delay = -sprng() * 5;
-    // small end of the glyph sheet only — these are pinpricks, not features
-    const glyph = 2 + Math.floor(sprng() * (SPARK_GLYPHS.length - 2));
+    // small end of the alphabet only — these are pinpricks, not features,
+    // and the lit ones keep clear of the solid squares for the same reason
+    // the near field does
+    const dr = sprng();
+    const glyph = 3 + Math.floor(dr * (light ? 3 : SPARK_GLYPHS.length - 3));
     if (deep.some((s) => Math.hypot(s.x! - x, (s.y! - y) * 0.625) < 6)) continue;
     deep.push({
       id: `deep-star-${deep.length}`, z, w, ar: 1, x, y, op, dur, delay,
+      flick: (deep.length + 1) % 3,
       kind: 'spark', spark: light ? 'light' : 'star',
       mask: SPARK_GLYPHS[glyph],
       tone: 'color-mix(in srgb, var(--fg) 70%, var(--bg))',
@@ -198,17 +279,19 @@ const SPARKS: SceneLayer[] = [];
     attempts++;
     const light = sprng() < 0.18;
     const z = -(1000 + sprng() * 36);
-    const w = 0.22 + sprng() * 0.42;
+    const w = 0.16 + sprng() * 0.28;
     const x = -49 + sprng() * 98;
     const y = -34 + sprng() * 66;
     const op = 0.16 + sprng() * 0.3;
     const dur = 3.4 + sprng() * 3.8;
     const delay = -sprng() * 6;
-    // dots only — at this size the drawn sparkles would just smear
-    const glyph = 4 + Math.floor(sprng() * (SPARK_GLYPHS.length - 4));
+    // dots only — at this size an x or a + has no room to resolve its arms
+    // and collapses into a grey smudge, so these take the two square marks
+    const glyph = 6 + Math.floor(sprng() * (SPARK_GLYPHS.length - 6));
     if (dust.some((s) => Math.hypot(s.x! - x, (s.y! - y) * 0.625) < 3.5)) continue;
     dust.push({
       id: `dust-${dust.length}`, z, w, ar: 1, x, y, op, dur, delay,
+      flick: (dust.length + 2) % 3,
       kind: 'spark', spark: light ? 'light' : 'star',
       mask: SPARK_GLYPHS[glyph],
       tone: 'color-mix(in srgb, var(--fg) 60%, var(--bg))',
@@ -439,29 +522,42 @@ export default function Hero() {
                     opacity: l.op ?? 1,
                   }}
                 >
-                  <div className="hl-prop" data-prop={l.id} data-spark={l.kind === 'spark' ? '' : undefined}>
-                    {l.kind === 'spark' &&
-                      (l.spark === 'star' ? (
+                  <div
+                    className="hl-prop"
+                    data-prop={l.id}
+                    data-spark={l.kind === 'spark' ? '' : undefined}
+                    data-flick={l.kind === 'spark' ? l.flick : undefined}
+                  >
+                    {l.kind === 'spark' && (
+                      <>
+                        {/* A lit particle is the same MARK as a dark one, sat
+                            on a bloom its own size — not a soft blob. The
+                            glyph has to stay legible or the sky goes back to
+                            being lens flares. Both children share one
+                            duration/delay so the bloom blinks with its mark
+                            rather than beating against it. */}
+                        {l.spark === 'light' && (
+                          <div
+                            className="hl-light"
+                            style={{
+                              animationDuration: `${l.dur}s`,
+                              animationDelay: `${l.delay}s`,
+                              ...({ '--lightc': l.lightc } as CSSProperties),
+                            }}
+                          />
+                        )}
                         <div
                           className="hl-ink hl-spark"
                           style={{
-                            backgroundColor: l.tone,
+                            backgroundColor: l.spark === 'light' ? l.lightc : l.tone,
                             WebkitMaskImage: l.mask,
                             maskImage: l.mask,
                             animationDuration: `${l.dur}s`,
                             animationDelay: `${l.delay}s`,
                           }}
                         />
-                      ) : (
-                        <div
-                          className="hl-light"
-                          style={{
-                            animationDuration: `${l.dur}s`,
-                            animationDelay: `${l.delay}s`,
-                            ...({ '--lightc': l.lightc } as CSSProperties),
-                          }}
-                        />
-                      ))}
+                      </>
+                    )}
                     {l.kind === 'interior' && (
                       <div className="hl-interior">
                         <div className="hl-glow" />
@@ -471,7 +567,7 @@ export default function Hero() {
                     {l.kind === 'floor' && <div className="hl-floor" />}
                     {l.ascii && (
                       <div className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}`}>
-                        <HeroAsciiArt src={l.ascii} seed={i + 1} variant={l.render ?? 'ascii'} />
+                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} />
                       </div>
                     )}
                     {l.mask && l.kind !== 'spark' && (
@@ -612,30 +708,70 @@ export default function Hero() {
         :root[data-theme='light'] .theme-dark-only {
           display: none;
         }
-        .hl-spark {
-          animation: hl-spark 3s ease-in-out infinite alternate;
+        /* Digital twinkle. A star is either lit or it is not: steps(1, end)
+           holds each keyframe's value until the next one lands, so every
+           change is a hard cut. The old loop ramped opacity AND scaled the
+           mark, which is a PULSE — it breathes, and breathing is the organic
+           register this sky is trying to leave. Nothing here touches
+           transform, so nothing swells.
+
+           Three rhythms rather than one: with a single pattern, 64 particles
+           on staggered delays still visibly share a beat. Duration and phase
+           come from each particle's own inline style. */
+        .hl-spark,
+        .hl-light {
+          animation: hl-twinkle-a 3s steps(1, end) infinite;
         }
-        /* Distant lanterns: hot core, colored ring, wide soft falloff,
-           composited additively so overlaps bloom like real lights. The
-           color family comes from --lightc per particle: accent lanterns or
-           uncolored ones (bright bone in the dark theme, ink in light). */
+        [data-flick='1'] .hl-spark,
+        [data-flick='1'] .hl-light {
+          animation-name: hl-twinkle-b;
+        }
+        [data-flick='2'] .hl-spark,
+        [data-flick='2'] .hl-light {
+          animation-name: hl-twinkle-c;
+        }
+        /* The bloom UNDER a lit particle — it is no longer the particle
+           itself. Deliberately tight (gone by 62% of the box) and with no
+           hot core: it sits behind a crisp glyph, and the old wide falloff
+           swallowed that glyph whole and turned the mark back into a soft
+           blob. Composited additively so overlaps still bloom like real
+           lights. The color family comes from --lightc per particle. */
         .hl-light {
           --lightc: var(--accent);
           background: radial-gradient(circle,
-            color-mix(in srgb, var(--lightc) 30%, var(--fg)) 0%,
-            var(--lightc) 11%,
-            color-mix(in srgb, var(--lightc) 55%, transparent) 28%,
-            color-mix(in srgb, var(--lightc) 20%, transparent) 48%,
-            transparent 72%);
+            color-mix(in srgb, var(--lightc) 45%, transparent) 0%,
+            color-mix(in srgb, var(--lightc) 22%, transparent) 34%,
+            transparent 62%);
           mix-blend-mode: screen;
-          animation: hl-spark 3s ease-in-out infinite alternate;
         }
         :root[data-theme='light'] .hl-light {
           mix-blend-mode: multiply;
         }
-        @keyframes hl-spark {
-          from { opacity: 0.4; transform: scale(0.88); }
-          to { opacity: 1; transform: scale(1.1); }
+        @keyframes hl-twinkle-a {
+          0% { opacity: 1; }
+          22% { opacity: 0.14; }
+          31% { opacity: 0.9; }
+          52% { opacity: 0.36; }
+          61% { opacity: 1; }
+          86% { opacity: 0.2; }
+          94% { opacity: 0.72; }
+        }
+        @keyframes hl-twinkle-b {
+          0% { opacity: 0.5; }
+          13% { opacity: 1; }
+          27% { opacity: 0.1; }
+          45% { opacity: 0.82; }
+          58% { opacity: 0.26; }
+          77% { opacity: 1; }
+          90% { opacity: 0.44; }
+        }
+        @keyframes hl-twinkle-c {
+          0% { opacity: 0.86; }
+          17% { opacity: 0.3; }
+          38% { opacity: 1; }
+          51% { opacity: 0.6; }
+          69% { opacity: 0.12; }
+          83% { opacity: 0.96; }
         }
         /* The light source behind the scenery — glow only, no panel fill:
            a visible rectangle edge against the void reads as a seam. */

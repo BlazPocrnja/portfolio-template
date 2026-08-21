@@ -245,9 +245,17 @@ export function createLineScreen(canvas: HTMLCanvasElement, options: LineScreenO
     });
   }
   function onMove(e: MouseEvent) {
-    const rect = canvas.getBoundingClientRect();
-    pointerX = e.clientX - rect.left;
-    pointerY = e.clientY - rect.top;
+    // offsetX/Y, NOT clientX minus the bounding rect. Every hero layer is
+    // laid out oversized and scaled back down by the stage's perspective
+    // transform, so the bounding rect is the PROJECTED box (the brain: 347px
+    // on screen) while everything else in here — clientWidth, the buffer,
+    // the grain — is in the element's own LAYOUT space (731px). Subtracting
+    // the rect hands back projected pixels, and dividing those by a layout
+    // width put the hover at less than half the distance from the corner it
+    // should have been. offsetX is already in the target's own untransformed
+    // coordinates, which is the space the rest of this renderer speaks.
+    pointerX = e.offsetX;
+    pointerY = e.offsetY;
     scheduleHover();
   }
   function onLeave() {

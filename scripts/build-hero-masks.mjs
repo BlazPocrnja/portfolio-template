@@ -20,6 +20,17 @@
  *    Requires a real alpha channel. A source still sitting on its backdrop
  *    has to be masked first (in an editor) rather than segmented here —
  *    that was tried, and threshold heuristics chewed the wispy edges.
+ *  - "photo": a rectangular photograph used as a whole PANEL, no silhouette
+ *    involved — the far backdrop of the box. Luminance becomes alpha across
+ *    the entire frame, tonally stretched across the photo's own range, so a
+ *    screen has real light and shadow to sample. Unlike "cutout" there is no
+ *    auto-crop (the frame IS the artwork) and no alpha floor: the darkest
+ *    tones drop out COMPLETELY, which is what stops a full-width panel from
+ *    reading as a rectangle with visible seams against the void.
+ *    `invert: true` flips which end of the tonal range gets the ink. On the
+ *    dark stage the glyphs are bone, so density follows LIGHT by default —
+ *    for a landscape that inks the SKY and leaves the land open, which is
+ *    usually backwards for a ridgeline and exactly right for a sunset.
  *
  * Re-run any time a source file is replaced: node scripts/build-hero-masks.mjs
  */
@@ -39,7 +50,8 @@ const dir = path.join(root, 'public', 'hero');
 
 /* slot <- { src: raw export in art-src/hero/, mode, flop?, flip?, rotate?,
  *           crop? [left,top,w,h], largestOnly?, despeckle? (min ink-blob
- *           area in px to survive — kills scan grit along cut edges) } */
+ *           area in px to survive — kills scan grit along cut edges),
+ *           invert?/gamma? (photo mode only) } */
 const MAP = {
   // positive-space variant: the ink drawing itself (cloud linework + candle
   // outlines), no solid panel behind it; despeckled so scan grit along the
@@ -62,17 +74,23 @@ const MAP = {
   // the original engravings — black ink on paper — instead of negatives
   'devil-ink.png': { src: 'devil-tarot-source.png', mode: 'ink', largestOnly: true },
   'cockatrice-ink.png': { src: 'cockatrice-tarot-source.png', mode: 'ink', flop: true },
-  // The reaching hands: masked and contrast-graded by hand, and already
-  // turned upright, so they need no transform here at all. NEVER flip or
-  // flop these — mirroring reverses handedness, so a left hand comes out as
-  // a right one, which is glaring once the mosaic renders it with enough
-  // tone to actually read as a hand.
-  'hand-left.png': { src: 'left-hand-real.png', mode: 'cutout' },
-  'hand-right.png': { src: 'right-hand-real.png', mode: 'cutout' },
-  // The brain model, masked off its backdrop by hand — its own shading
-  // carries the gyri and sulci, where the old dithered stipple flattened
-  // them to 1 bit.
-  'brain.png': { src: 'brain-real.png', mode: 'cutout' },
+  // The reaching hands, hand-dithered in Photoshop like the brain — same
+  // trade, and it went the same way: the raw photo cutouts (still in
+  // art-src/ as *-real.png) carry continuous shading, but the 1-bit stipple
+  // has far more contrast and its dot pattern IS the texture.
+  // NEVER flip or flop these — mirroring reverses handedness, so a left hand
+  // comes out as a right one, which is glaring once a screen renders it with
+  // enough tone to actually read as a hand.
+  'hand-left.png': { src: 'left-hand-dither-source.png', mode: 'ink' },
+  'hand-right.png': { src: 'right-hand-dither-source.png', mode: 'ink' },
+  // The brain: the hand-dithered engraving, 1-bit black-and-white straight
+  // out of Photoshop. A continuous-tone photo cutout of a real brain was
+  // tried in its place (brain-real.png, still in art-src/) and lost — the
+  // stipple's contrast is far punchier, and its dot pattern is the whole
+  // texture of the piece. 'ink' mode is a no-op on a file that already
+  // carries its shape in alpha, and still does the right thing if the
+  // engraving is ever re-exported flat as black-on-white.
+  'brain.png': { src: 'brain-dither-source.png', mode: 'ink' },
 };
 
 const EDGE_TRIM = 6; // px of canvas border cleared (scan/card-edge slivers)
@@ -103,7 +121,7 @@ function labelComponents(alpha, width, height, thresh = 40) {
   return { labels, areas };
 }
 
-for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle }] of Object.entries(MAP)) {
+for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle, invert, gamma }] of Object.entries(MAP)) {
   const srcPath = path.join(srcDir, src);
   try {
     await access(srcPath);
@@ -221,6 +239,43 @@ for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle 
       .png()
       .toFile(path.join(dir, slot));
     console.log(`built ${slot} <- ${src} (cutout, crop ${cw}x${ch} @ ${cx},${cy}, tone ${lo.toFixed(1)}..${hi.toFixed(1)})`);
+    continue;
+  }
+
+  if (mode === 'photo') {
+    // 1400px is past what any of the screens resolve across a backdrop this
+    // wide, but keeps headroom if the panel is ever framed tighter.
+    const { data, info } = await pipeline
+      .resize({ width: 1400, withoutEnlargement: true })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const { width, height } = info;
+    const n = width * height;
+
+    const lum = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      lum[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+    }
+    // Stretch across the photo's OWN range, clipping the extreme 2% at each
+    // end so a single blown highlight or black clipped shadow cannot decide
+    // the mapping for the whole frame.
+    const sorted = Float32Array.from(lum).sort();
+    const lo = sorted[Math.floor(n * 0.02)] ?? 0;
+    const hi = sorted[Math.floor(n * 0.98)] ?? 255;
+    const range = Math.max(1e-4, hi - lo);
+    const g = gamma ?? 0.8;
+
+    const out = Buffer.alloc(n * 4);
+    for (let i = 0; i < n; i++) {
+      let t = Math.min(1, Math.max(0, (lum[i] - lo) / range));
+      if (invert) t = 1 - t;
+      out[i * 4 + 3] = Math.round(Math.pow(t, g) * 255);
+    }
+    await sharp(out, { raw: { width, height, channels: 4 } })
+      .png()
+      .toFile(path.join(dir, slot));
+    console.log(`built ${slot} <- ${src} (photo, ${width}x${height}, tone ${lo.toFixed(1)}..${hi.toFixed(1)}${invert ? ', inverted' : ''}) — set the layer's ar to ${width}/${height}`);
     continue;
   }
 

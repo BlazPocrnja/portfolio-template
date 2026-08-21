@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { buildAsciiGridFromImage, createAsciiMosaic } from '@/lib/ascii';
 import { createLineScreen } from '@/lib/linescreen';
+import { createDotScreen } from '@/lib/halftone';
+import { createDither } from '@/lib/dither';
 
 const TARGET_CELL_PX = 7; // ON-SCREEN glyph cell width to solve for — fine enough to keep the finger separation legible, coarse enough that each glyph still reads as a mark
 const MAX_COLS = 140; // near-camera layers (the reaching hands) sit in a box far larger than the viewport, off-screen edges included — this bounds the grid instead of sampling detail nobody sees
@@ -10,8 +12,66 @@ const MAX_COLS = 140; // near-camera layers (the reaching hands) sit in a box fa
    between line centres on screen. Both live here rather than in the
    renderer so the hero's grain is tuned next to the ascii cell size it
    sits beside. */
-const LINE_PIXEL = 1.5;
-const LINE_PITCH = 5;
+/* Much finer than the grain the hands wore when they carried this screen.
+   A line screen has NO horizontal resolution inside a lane — the whole lane
+   is one column of tone — so the lane count across the subject is the only
+   thing deciding whether a figure survives. The hands were half the stage
+   wide and could spend 5px lanes; the creatures are 16-19% wide and sit deep
+   enough that the box is projected down again, which left the devil about 36
+   lanes for a whole standing figure and rendered him as a striped smear. */
+const LINE_PIXEL = 1;
+const LINE_PITCH = 3;
+
+/* Dot-screen grain, same units as the line screen. Finer on both counts
+   because the layers wearing it (the creatures) are small and deep in the
+   box: at the line screen's grain a 16%-wide prop only gets ~30 cells
+   across, which is not enough lattice to resolve a horned figure from a
+   blob. DOT_PIXEL 1 also keeps the dots round rather than square-ish. */
+const DOT_PIXEL = 1;
+const DOT_PITCH = 3;
+/* Tone shaping for the dot screen. The `material` masks are bright almost
+   everywhere (alpha = coverage x lightness of a lit panel), so an unshaped
+   ramp parks most of the figure at full dot and the lattice reads as a grey
+   slab. Crushing the mid-tones spreads the radii back out, which is where
+   the printed-stipple character actually lives. */
+const DOT_GAMMA = 1.4;
+
+/* Stitch-screen grain. Coarser than the dot screen on purpose: a cell has to
+   be wide enough to hold a legible x, and below ~5 rendered px the glyph
+   alphabet collapses back into indistinguishable specks. CROSS_PITCH 6 lands
+   5px marks with a 1px gutter, so the lattice stays visible between them. */
+const CROSS_PIXEL = 1;
+const CROSS_PITCH = 6;
+/* Crushed harder than the dot screen's curve. The ramp is only eight marks
+   long, and the material masks are bright nearly everywhere — at a gentle
+   gamma almost the whole figure indexes into the top two (near-solid) marks
+   and the stitching disappears under its own ink. Pushing the mid-tones down
+   parks the bulk of the figure on the plain x, which is where the woven
+   character actually lives. */
+const CROSS_GAMMA = 1.6;
+/* Higher than the dot screen's floor: an x is mostly negative space, so a
+   cell has to carry real tone before it earns a mark. Left at the dot
+   screen's 0.06 the mask's soft outer rim sprouts a wide halo of stray
+   stitches and the figure loses its silhouette against the stage. */
+const CROSS_CUTOFF = 0.12;
+
+/* Screen angle, shared by both mark vocabularies. UPRIGHT, deliberately.
+   Print screens a single colour at 45deg because an axis-aligned lattice is
+   the most conspicuous arrangement there is, and turning it does measurably
+   work here: axis-aligned lattice energy drops from 5.83 to 0.82 at 15deg.
+   But it was tried at 15/30/45 and the upright screen simply looked better
+   in the scene — the tilted lattice reads as a woven fabric laid over the
+   art, where the upright one reads as the art's own grain. The measurement
+   was answering a narrower question than the one that matters.
+
+   Two things to know before reaching for this again. These marks are
+   axis-aligned square stamps, not round dots, so the lattice can only turn
+   as far as the stamps still clear each other (the renderer derives the
+   stamp size from that, so a big angle silently shrinks the glyphs rather
+   than fusing them). And the grid this was meant to break up is really the
+   heavy end of the ramp saturating across neighbouring cells — the tone
+   curve is the more direct lever on that. */
+const SCREEN_ANGLE = 0;
 
 interface Props {
   /** Built alpha-mask PNG in /hero (brain.png, hand-left.png, ...) — NOT the raw -source.png, which hasn't been through build-hero-masks.mjs's alpha extraction yet. */
@@ -21,8 +81,21 @@ interface Props {
   /** Ripple radius in grid cells for the hover glitch. */
   hoverRadius?: number;
   /** Which renderer draws this layer. 'ascii' is the symbol mosaic;
-   * 'lines' is the engraving-style line screen (see lib/linescreen.ts). */
-  variant?: 'ascii' | 'lines';
+   * 'lines' is the engraving-style line screen (see lib/linescreen.ts);
+   * 'dots' is the halftone dot screen and 'cross' the stitched glyph screen
+   * (both lib/halftone.ts); 'dither' shows the art AS AUTHORED and only
+   * glitches it under the cursor (lib/dither.ts). */
+  variant?: 'ascii' | 'lines' | 'dots' | 'cross' | 'dither';
+  /** Per-layer ink strength, overriding the variant's CSS default. A screen
+   * inks at one fixed strength, which is right for a subject carrying real
+   * tonal mass and wrong for hairline artwork: thin linework averaged into
+   * cells lands in the middle of the ramp and the whole layer goes grey. */
+  ink?: number;
+  /** Alternate mask used under the light theme. The creatures ship both a
+   * `material` negative (bright figure, for the dark stage) and an `ink`
+   * positive (the original black engraving, for paper) — the screens read
+   * alpha as tone, so handing them the wrong one inverts the figure. */
+  srcLight?: string;
 }
 
 /**
@@ -40,9 +113,25 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii' }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /* The renderers already re-read their COLOUR on a theme flip; swapping the
+     source ART is a different job, and it has to re-enter the effect so the
+     new image loads and re-rasterises. Starts on the dark source so SSR and
+     the first client render agree, then corrects after mount. */
+  const [light, setLight] = useState(false);
+
+  useEffect(() => {
+    if (!srcLight) return;
+    const read = () => setLight(document.documentElement.dataset.theme === 'light');
+    read();
+    const mo = new MutationObserver(read);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => mo.disconnect();
+  }, [srcLight]);
+
+  const source = light && srcLight ? srcLight : src;
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -55,7 +144,13 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
     const renderer =
       variant === 'lines'
         ? createLineScreen(canvas, { pixel: LINE_PIXEL, pitch: LINE_PITCH })
-        : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
+        : variant === 'dots'
+          ? createDotScreen(canvas, { pixel: DOT_PIXEL, pitch: DOT_PITCH, gamma: DOT_GAMMA, angle: SCREEN_ANGLE })
+          : variant === 'cross'
+            ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE })
+            : variant === 'dither'
+              ? createDither(canvas)
+              : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
 
     // Cols is solved from the box's ACTUAL ON-SCREEN width (getBoundingClientRect,
     // post-perspective) rather than clientWidth or a fixed constant. clientWidth
@@ -68,9 +163,20 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
       if (!loadedImage || !wrap) return;
       const visualWidth = wrap.getBoundingClientRect().width;
       if (!visualWidth) return;
-      if (variant === 'lines') {
-        // The screen rasterises straight off the source image at its own
-        // resolution, so there is no grid for the caller to solve here.
+      if (variant === 'dither') {
+        // Needs the file's own dimensions: its buffer is sized off the ART,
+        // not off the box, so that the 1-bit stipple is never resampled into
+        // greys. See the note at the top of lib/dither.ts.
+        (renderer as ReturnType<typeof createDither>).setImage(
+          loadedImage,
+          loadedImage.naturalWidth,
+          loadedImage.naturalHeight
+        );
+        return;
+      }
+      if (variant !== 'ascii') {
+        // Every screen rasterises straight off the source image at its own
+        // fixed grain, so there is no grid for the caller to solve here.
         (renderer as ReturnType<typeof createLineScreen>).setImage(loadedImage);
         return;
       }
@@ -86,26 +192,69 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
       loadedImage = img;
       rebuild();
     };
-    img.src = src;
+    img.src = source;
 
     let resizeTimer = 0;
     const ro = new ResizeObserver(() => {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(rebuild, 150);
     });
-    ro.observe(wrap);
+    /* device-pixel-content-box, not the default content box. Each renderer
+       reads devicePixelRatio when it sizes its backing store, but only ever
+       does so on a resize — and dragging the window to a monitor with a
+       different pixel ratio changes no CSS size at all. The canvas then
+       keeps a buffer scaled for the old display and the browser stretches
+       it, which is about the worst thing that can happen to a screen whose
+       whole character is hard-edged nearest-neighbour pixels. Watching the
+       DEVICE pixel box catches the ratio change as a resize, because in
+       device pixels it genuinely is one. */
+    try {
+      ro.observe(wrap, { box: 'device-pixel-content-box' });
+    } catch {
+      // Older engines: fall back to the CSS box and accept that a
+      // monitor-to-monitor drag needs a real resize to correct itself.
+      ro.observe(wrap);
+    }
+
+    /* Second path to the same correction, because there is no dpr event and
+       the two signals fail in different places: device-pixel-content-box is
+       unsupported on older engines, and this query does not fire under
+       headless CDP emulation (it stops MATCHING, but dispatches nothing) —
+       which is exactly how the ResizeObserver route got found. The query
+       tests one exact ratio, so it has to be rebuilt from the new value
+       every time it fires. */
+    let dprQuery: MediaQueryList | null = null;
+    const watchDpr = () => {
+      dprQuery?.removeEventListener('change', onDpr);
+      dprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      dprQuery.addEventListener('change', onDpr);
+    };
+    function onDpr() {
+      watchDpr();
+      rebuild();
+    }
+    watchDpr();
 
     return () => {
       cancelled = true;
       ro.disconnect();
+      dprQuery?.removeEventListener('change', onDpr);
       renderer.destroy();
       window.clearTimeout(resizeTimer);
     };
-  }, [src, seed, hoverRadius, variant]);
+  }, [source, seed, hoverRadius, variant]);
 
   return (
     <div ref={wrapRef} className="hero-ascii-art-wrap">
-      <canvas ref={canvasRef} className="hero-ascii-art" aria-hidden="true" />
+      {/* Inline, so it beats the variant's class rule — which sets the var on
+          the canvas itself, where an inherited value would never reach. */}
+      <canvas
+        ref={canvasRef}
+        className="hero-ascii-art"
+        data-variant={variant}
+        style={ink != null ? ({ '--linescreen-alpha': `${ink}` } as CSSProperties) : undefined}
+        aria-hidden="true"
+      />
       {/* dangerouslySetInnerHTML avoids a React SSR/hydration text-escaping mismatch for raw-text elements like <style> */}
       <style dangerouslySetInnerHTML={{ __html: `
         .hero-ascii-art-wrap {
@@ -129,6 +278,21 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
         }
         :root[data-theme='light'] .hero-ascii-art {
           --linescreen-alpha: 0.9;
+        }
+        /* The stitch screen inks harder than the hatching does. Its marks are
+           small and mostly hollow, so at the line screen's strength the
+           creatures read as a grey haze instead of as figures. */
+        .hero-ascii-art[data-variant='cross'] {
+          --linescreen-alpha: 0.72;
+        }
+        :root[data-theme='light'] .hero-ascii-art[data-variant='cross'] {
+          --linescreen-alpha: 1;
+        }
+        /* The dithered engraving inks at full strength in both themes — the
+           contrast is the reason it is here, and thinning it would undo the
+           whole point of choosing it over a re-screened photo. */
+        .hero-ascii-art[data-variant='dither'] {
+          --linescreen-alpha: 1;
         }
       ` }} />
     </div>

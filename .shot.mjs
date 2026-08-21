@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+import sharp from 'sharp';
+const tag = process.argv[2];
+const T = process.env.TEMP + '/claude/';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1512, height: 950 }, deviceScaleFactor: 2, reducedMotion: 'reduce' });
+await p.goto('http://localhost:4321/', { waitUntil: 'networkidle' });
+await p.waitForTimeout(6500);
+const box = await p.evaluate(() => { const r = document.querySelector('[data-prop="brain"] canvas').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+await p.screenshot({ path: T + tag + '.png' });
+await b.close();
+const m = await sharp(T + tag + '.png').metadata();
+const L = Math.max(0, Math.round(box.x * 2) - 20), Tp = Math.max(0, Math.round(box.y * 2) - 20);
+const W = Math.min(m.width - L, Math.round(box.w * 2) + 40), H = Math.min(m.height - Tp, Math.round(box.h * 2) + 40);
+await sharp(T + tag + '.png').extract({ left: L, top: Tp, width: W, height: H }).resize({ width: 760 }).png().toFile(T + tag + '-brain.png');
+console.log('shot', tag, JSON.stringify(box));
