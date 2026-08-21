@@ -304,6 +304,18 @@ const SPARKS: SceneLayer[] = [];
 /* Back-to-front by depth — DOM order is paint order. */
 const LAYERS: SceneLayer[] = [...BASE_LAYERS, ...SPARKS].sort((a, b) => a.z - b.z);
 
+/* Churn falls off with depth. The near plane boils the way the ascii mosaic
+ * does; the back of the box only drifts. Depth is normalised across the
+ * range the scene actually occupies (the hands at -70 to the interior at
+ * -1040) rather than against PERSP, so the gradient spends its whole range
+ * on layers that exist instead of on empty space in front of the camera. */
+const CHURN_NEAR = 0.1; // matches the ascii mosaic's rate, so the hands read alike whichever renderer they wear
+const CHURN_FAR = 0.015;
+function churnForDepth(z: number) {
+  const d = Math.min(1, Math.max(0, (-z - 70) / (1040 - 70)));
+  return CHURN_NEAR + (CHURN_FAR - CHURN_NEAR) * d;
+}
+
 /** Perspective projection factor: element sizes/offsets are authored as what
  * you SEE at p=0; this converts them to the actual (larger, deeper) values. */
 function proj(z: number) {
@@ -567,7 +579,7 @@ export default function Hero() {
                     {l.kind === 'floor' && <div className="hl-floor" />}
                     {l.ascii && (
                       <div className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}`}>
-                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} />
+                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} churn={churnForDepth(l.z)} />
                       </div>
                     )}
                     {l.mask && l.kind !== 'spark' && (

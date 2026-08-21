@@ -91,6 +91,9 @@ interface Props {
    * tonal mass and wrong for hairline artwork: thin linework averaged into
    * cells lands in the middle of the ramp and the whole layer goes grey. */
   ink?: number;
+  /** Share of cells re-rolling their mark each tick, 0 to freeze. The scene
+   * derives this from the layer's depth — see churnForDepth in Hero.tsx. */
+  churn?: number;
   /** Alternate mask used under the light theme. The creatures ship both a
    * `material` negative (bright figure, for the dark stage) and an `ink`
    * positive (the original black engraving, for paper) — the screens read
@@ -113,7 +116,7 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, churn }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /* The renderers already re-read their COLOUR on a theme flip; swapping the
@@ -145,9 +148,9 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
       variant === 'lines'
         ? createLineScreen(canvas, { pixel: LINE_PIXEL, pitch: LINE_PITCH })
         : variant === 'dots'
-          ? createDotScreen(canvas, { pixel: DOT_PIXEL, pitch: DOT_PITCH, gamma: DOT_GAMMA, angle: SCREEN_ANGLE })
+          ? createDotScreen(canvas, { pixel: DOT_PIXEL, pitch: DOT_PITCH, gamma: DOT_GAMMA, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn })
           : variant === 'cross'
-            ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE })
+            ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn })
             : variant === 'dither'
               ? createDither(canvas)
               : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
@@ -242,7 +245,7 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
       renderer.destroy();
       window.clearTimeout(resizeTimer);
     };
-  }, [source, seed, hoverRadius, variant]);
+  }, [source, seed, hoverRadius, variant, churn]);
 
   return (
     <div ref={wrapRef} className="hero-ascii-art-wrap">

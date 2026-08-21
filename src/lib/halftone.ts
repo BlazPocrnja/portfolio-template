@@ -20,9 +20,10 @@
  *
  * It inherits the line screen's two rules on purpose, for the same reasons:
  *
- * 1. It does not animate. A screen is a fixed raster that content is seen
- *    THROUGH — the motion belongs to the artwork drifting behind it. No rAF
- *    loop, so an idle layer costs nothing.
+ * 1. Its GEOMETRY does not animate. The lattice is a fixed raster that
+ *    content is seen THROUGH; it never slides or wobbles. The marks sitting
+ *    on it may boil in place — see `churn` — but that is opt-in, and with it
+ *    off there is no rAF loop and an idle layer costs nothing.
  *
  * 2. It does not draw arcs. Every dot is rasterised by hand into a small
  *    ImageData (a hard-thresholded span per scanline, no antialiasing) which
@@ -73,6 +74,13 @@ export interface DotScreenOptions {
   opacity?: number;
   /** Pointer bulge radius in CSS px; dots fatten toward the cursor. */
   hoverRadius?: number;
+  /** Fraction of inked cells that re-roll their mark each tick. A cell can
+   * only move one step along the alphabet, since the marks are strictly
+   * ordered by weight and there is no "different glyph, same density" to
+   * swap to the way the ascii pools have. The step is symmetric, so the
+   * field boils without the average tone drifting. 0 keeps the screen
+   * static and costs nothing at all. */
+  churn?: number;
   /** Peak extra ink under the cursor. For 'dot' it is extra radius as a
    * fraction of the cell; for 'cross' it is how far up the glyph ramp a cell
    * is pushed, as a fraction of the ramp's length. */
@@ -206,6 +214,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   const pixelMin = Math.max(1, options.pixel ?? 2);
   const maxSide = options.maxSide ?? 1600;
   const angleRad = ((options.angle ?? 0) * Math.PI) / 180;
+  const churn = Math.max(0, options.churn ?? 0);
   const pitchMin = Math.max(2, options.pitch ?? 4);
   const weight = options.weight ?? 1.05;
   const cutoff = options.cutoff ?? 0.06;
@@ -230,6 +239,8 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   let cellX: Float32Array = new Float32Array(0);
   let cellY: Float32Array = new Float32Array(0);
   let cellTone: Float32Array = new Float32Array(0);
+  /** Per-cell offset along the alphabet: -1, 0 or +1. */
+  let cellStep: Int8Array = new Int8Array(0);
   let cellCount = 0;
   /** 'cross' only: the glyph alphabet, rebuilt whenever the cell size
    * changes (the marks are plotted to fit the cell, so they cannot be
@@ -379,6 +390,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
         cellX = new Float32Array(cap);
         cellY = new Float32Array(cap);
         cellTone = new Float32Array(cap);
+        cellStep = new Int8Array(cap);
       }
       cellCount = 0;
       for (let cy = 0; cy < rows; cy++) {
@@ -414,6 +426,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
       cellX = new Float32Array(cap);
       cellY = new Float32Array(cap);
       cellTone = new Float32Array(cap);
+      cellStep = new Int8Array(cap);
     }
     // The box averaged per cell must cover exactly ONE cell's worth of
     // artwork. An earlier version used a half-width of pitch/2, which makes
@@ -472,118 +485,154 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     return true;
   }
 
+  /** Half-extent of the block one cell can touch, in buffer px. Used to
+   * wipe a single cell before repainting it during a churn tick. */
+  function cellReach(maxR: number) {
+    return markKind === 'cross'
+      ? (stampSize >> 1) + 1
+      : Math.ceil(maxR * (1 + hoverGain)) + 2;
+  }
+
+  /** Paints one glyph from the ramp with its centre on the cell's. */
+  function stampInto(g: Stamp, ax: number, ay: number) {
+    if (!image) return;
+    const px = image.data;
+    const x0 = ax - (stampSize >> 1);
+    const y0 = ay - (stampSize >> 1);
+    for (let sy = 0; sy < stampSize; sy++) {
+      const y = y0 + sy;
+      if (y < 0 || y >= oh) continue;
+      const rowOff = y * ow;
+      const stampOff = sy * stampSize;
+      for (let sx = 0; sx < stampSize; sx++) {
+        if (!g[stampOff + sx]) continue;
+        const x = x0 + sx;
+        if (x < 0 || x >= ow) continue;
+        const i = (rowOff + x) * 4;
+        px[i] = 255;
+        px[i + 1] = 255;
+        px[i + 2] = 255;
+        px[i + 3] = 255;
+      }
+    }
+  }
+
+  /** Blanks the block a cell occupies, so it can be repainted in isolation.
+   * Safe because the stamp size is derived from the lattice packing — no
+   * cell's block can reach into a neighbour's. */
+  function clearCell(c: number, reach: number) {
+    if (!image) return;
+    const px = image.data;
+    const bx = Math.round(cellX[c]);
+    const by = Math.round(cellY[c]);
+    const y0 = Math.max(0, by - reach), y1 = Math.min(oh - 1, by + reach);
+    const x0 = Math.max(0, bx - reach), x1 = Math.min(ow - 1, bx + reach);
+    for (let y = y0; y <= y1; y++) {
+      const rowOff = y * ow;
+      for (let x = x0; x <= x1; x++) px[(rowOff + x) * 4 + 3] = 0;
+    }
+  }
+
+  /** Paints one cell into the buffer. Split out of render() so a churn tick
+   * can repaint just the cells that moved instead of the whole field. */
+  function paintCell(c: number, hx: number, hy: number, hr2: number, maxR: number, levels: number) {
+    if (!image) return;
+    const px = image.data;
+    const v = cellTone[c];
+    if (v <= cutoff) return;
+    const centreX = cellX[c];
+    const centreY = cellY[c];
+    const baseX = Math.round(centreX);
+    const baseY = Math.round(centreY);
+
+    // Shared 0..1 ink amount. Both vocabularies read it the same way — one
+    // scales a radius by it, the other indexes an alphabet with it — so the
+    // hover bulge and the tone curve behave identically whichever mark is in
+    // use.
+    let ink = Math.pow(v, gamma);
+    if (hx >= 0) {
+      const dx = centreX - hx;
+      const dy = centreY - hy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < hr2) {
+        const k = 1 - d2 / hr2;
+        ink += hoverGain * k * k;
+      }
+    }
+
+    if (markKind === 'cross') {
+      if (!levels) return;
+      const idx = Math.min(levels - 1, Math.max(0, Math.round(ink * (levels - 1)) + cellStep[c]));
+      stampInto(ramp[idx], baseX, baseY);
+      return;
+    }
+
+    // Radii quantise to whole rendered pixels: a printed screen has a finite
+    // set of dot sizes, and rounding here is what produces that stepping
+    // instead of a continuous swell.
+    const rr = Math.round(maxR * ink) + cellStep[c];
+    if (rr < 1) {
+      // The smallest mark a screen can make is one pixel. Below that it has
+      // to drop out rather than fade — that is what `cutoff` is for.
+      if (baseX >= 0 && baseX < ow && baseY >= 0 && baseY < oh) {
+        const i = (baseY * ow + baseX) * 4;
+        px[i] = 255;
+        px[i + 1] = 255;
+        px[i + 2] = 255;
+        px[i + 3] = 255;
+      }
+      return;
+    }
+    // +0.35 rounds the rim out to a disc; on the integer lattice a bare
+    // radius squared cuts the corners off into a diamond.
+    const r2 = (rr + 0.35) * (rr + 0.35);
+    const y0 = Math.max(0, baseY - rr);
+    const y1 = Math.min(oh - 1, baseY + rr);
+    for (let y = y0; y <= y1; y++) {
+      const dy = y - baseY;
+      const span = Math.floor(Math.sqrt(Math.max(0, r2 - dy * dy)));
+      let x0 = baseX - span;
+      let x1 = baseX + span;
+      if (x0 < 0) x0 = 0;
+      if (x1 > ow - 1) x1 = ow - 1;
+      const rowOff = y * ow;
+      // Opaque white: this buffer is a COVERAGE MASK, not the final art.
+      // Colour arrives in the tint pass in present().
+      for (let x = x0; x <= x1; x++) {
+        const i = (rowOff + x) * 4;
+        px[i] = 255;
+        px[i + 1] = 255;
+        px[i + 2] = 255;
+        px[i + 3] = 255;
+      }
+    }
+  }
+
+  /** Pointer in RENDERED px, so the bulge lands where the cursor actually is
+   * regardless of the upscale factor. */
+  function hoverArgs() {
+    const hr = hoverRadius / pixel;
+    return {
+      hx: pointerX >= 0 ? pointerX / pixel : -1,
+      hy: pointerY / pixel,
+      hr2: hr * hr,
+    };
+  }
+
   function render() {
     if (!ctx || !bctx || !image || !cellCount) return;
-    const px = image.data;
-    px.fill(0);
-    // Cells are square on the lattice's own axes, so one radius serves at
-    // any screen angle.
+    image.data.fill(0);
     const maxR = pitch * weight * 0.5;
     const levels = ramp.length;
-    const half = stampSize >> 1;
+    const h = hoverArgs();
+    for (let c = 0; c < cellCount; c++) paintCell(c, h.hx, h.hy, h.hr2, maxR, levels);
+    present();
+  }
 
-    // Pointer in RENDERED pixels, so the bulge lands where the cursor
-    // actually is regardless of the upscale factor.
-    const hx = pointerX >= 0 ? pointerX / pixel : -1;
-    const hy = pointerY / pixel;
-    const hr = hoverRadius / pixel;
-    const hr2 = hr * hr;
-
-    /** Paints one glyph from the ramp with its centre on the cell's. */
-    function stamp(g: Stamp, ax: number, ay: number) {
-      const x0 = ax - half;
-      const y0 = ay - half;
-      for (let sy = 0; sy < stampSize; sy++) {
-        const y = y0 + sy;
-        if (y < 0 || y >= oh) continue;
-        const rowOff = y * ow;
-        const stampOff = sy * stampSize;
-        for (let sx = 0; sx < stampSize; sx++) {
-          if (!g[stampOff + sx]) continue;
-          const x = x0 + sx;
-          if (x < 0 || x >= ow) continue;
-          const i = (rowOff + x) * 4;
-          px[i] = 255;
-          px[i + 1] = 255;
-          px[i + 2] = 255;
-          px[i + 3] = 255;
-        }
-      }
-    }
-
-    for (let c = 0; c < cellCount; c++) {
-      {
-        const v = cellTone[c];
-        if (v <= cutoff) continue;
-        const centreX = cellX[c];
-        const centreY = cellY[c];
-        const baseX = Math.round(centreX);
-        const baseY = Math.round(centreY);
-
-        // Shared 0..1 ink amount. Both vocabularies read it the same way —
-        // one scales a radius by it, the other indexes an alphabet with it —
-        // so the hover bulge and the tone curve behave identically whichever
-        // mark is in use.
-        let ink = Math.pow(v, gamma);
-        if (hx >= 0) {
-          const dx = centreX - hx;
-          const dy = centreY - hy;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < hr2) {
-            const k = 1 - d2 / hr2;
-            ink += hoverGain * k * k;
-          }
-        }
-
-        if (markKind === 'cross') {
-          if (!levels) continue;
-          const idx = Math.min(levels - 1, Math.max(0, Math.round(ink * (levels - 1))));
-          stamp(ramp[idx], baseX, baseY);
-          continue;
-        }
-
-        // Radii quantise to whole rendered pixels: a printed screen has a
-        // finite set of dot sizes, and rounding here is what produces that
-        // stepping instead of a continuous swell.
-        const rr = Math.round(maxR * ink);
-        if (rr < 1) {
-          // The smallest mark a screen can make is one pixel. Below that it
-          // has to drop out rather than fade — that is what `cutoff` is for.
-          if (baseX >= 0 && baseX < ow && baseY >= 0 && baseY < oh) {
-            const i = (baseY * ow + baseX) * 4;
-            px[i] = 255;
-            px[i + 1] = 255;
-            px[i + 2] = 255;
-            px[i + 3] = 255;
-          }
-          continue;
-        }
-        // +0.35 rounds the rim out to a disc; on the integer lattice a bare
-        // radius squared cuts the corners off into a diamond.
-        const r2 = (rr + 0.35) * (rr + 0.35);
-        const y0 = Math.max(0, baseY - rr);
-        const y1 = Math.min(oh - 1, baseY + rr);
-        for (let y = y0; y <= y1; y++) {
-          const dy = y - baseY;
-          const span = Math.floor(Math.sqrt(Math.max(0, r2 - dy * dy)));
-          let x0 = baseX - span;
-          let x1 = baseX + span;
-          if (x0 < 0) x0 = 0;
-          if (x1 > ow - 1) x1 = ow - 1;
-          const rowOff = y * ow;
-          // Opaque white: this buffer is a COVERAGE MASK, not the final art.
-          // Colour arrives in the tint pass below.
-          for (let x = x0; x <= x1; x++) {
-            const i = (rowOff + x) * 4;
-            px[i] = 255;
-            px[i + 1] = 255;
-            px[i + 2] = 255;
-            px[i + 3] = 255;
-          }
-        }
-      }
-    }
-
+  /** Buffer -> canvas, tinted. The only part a churn tick has to repeat in
+   * full; the painting above it can be done for just the cells that moved. */
+  function present() {
+    if (!ctx || !bctx || !image) return;
     bctx.putImageData(image, 0, 0);
     ctx.clearRect(0, 0, viewW, viewH);
     // Nearest-neighbour blow-up: this is what turns the low-res raster into
@@ -649,11 +698,63 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   canvas.addEventListener('mousemove', onMove);
   canvas.addEventListener('mouseleave', onLeave);
 
+  /* ---- churn ----------------------------------------------------------
+   * The module used to say flatly that it does not animate, on the grounds
+   * that a screen is a fixed raster content is seen THROUGH. That holds for
+   * the screen's GEOMETRY — the lattice never moves — but the marks sitting
+   * on it can still boil, and that is what this does.
+   *
+   * Every tick re-rolls a share of cells one step along the alphabet. Two
+   * things scale with `churn`, which is what makes depth read: how MANY
+   * cells re-roll per tick, and how OFTEN a tick happens. A near layer
+   * churns fast and hard; a far one drifts. The tick rate matters as much as
+   * the amount here, because a repaint rewrites the whole buffer — running
+   * every layer at 60fps would spend most of a frame on backdrops nobody is
+   * looking at.
+   */
+  const tickMs = churn > 0 ? 1000 / (4 + churn * 100) : 0;
+  // Share of re-rolled cells that actually step off their true tone. Scaled
+  // so a distant layer is subtler in AMPLITUDE too, not merely slower: left
+  // fixed, every layer would drift to the same noise floor and only the
+  // speed would differ.
+  const stepChance = Math.min(0.6, churn * 5);
+  let churnRaf = 0;
+  let lastTick = 0;
+  function churnFrame(now: number) {
+    churnRaf = requestAnimationFrame(churnFrame);
+    if (!cellCount || now - lastTick < tickMs) return;
+    lastTick = now;
+    const n = Math.max(1, Math.round(cellCount * churn));
+    const maxR = pitch * weight * 0.5;
+    const levels = ramp.length;
+    const reach = cellReach(maxR);
+    const h = hoverArgs();
+    let moved = 0;
+    for (let k = 0; k < n; k++) {
+      const c = (Math.random() * cellCount) | 0;
+      const r = Math.random();
+      // Symmetric, so the field boils without the average tone drifting.
+      const next = r < stepChance * 0.5 ? -1 : r < stepChance ? 1 : 0;
+      if (next === cellStep[c]) continue;
+      cellStep[c] = next;
+      /* Wipe and repaint this cell alone. Redrawing the whole field every
+         tick was costing about as much as the rest of the page put together
+         — the buffer fill and the re-stamp are proportional to the LAYER,
+         where this is proportional to what actually changed. */
+      clearCell(c, reach);
+      paintCell(c, h.hx, h.hy, h.hr2, maxR, levels);
+      moved++;
+    }
+    if (moved) present();
+  }
+  if (churn > 0) churnRaf = requestAnimationFrame(churnFrame);
+
   return {
     setImage,
     refresh,
     destroy() {
       if (hoverRaf) cancelAnimationFrame(hoverRaf);
+      if (churnRaf) cancelAnimationFrame(churnRaf);
       themeObserver.disconnect();
       canvas.removeEventListener('mousemove', onMove);
       canvas.removeEventListener('mouseleave', onLeave);
