@@ -135,6 +135,7 @@ interface SceneLayer {
   dur?: number; // spark twinkle duration
   delay?: number; // spark twinkle phase offset
   flick?: number; // which twinkle rhythm (0-2) — see the hl-twinkle keyframes
+  band?: number; // which SPARK_BANDS field this star re-rolls within
 }
 
 const BASE_LAYERS: SceneLayer[] = [
@@ -187,6 +188,15 @@ const BASE_LAYERS: SceneLayer[] = [
  * the volume so the dolly flies past them at different rates. Rejection
  * sampling keeps them from clumping in the rest view. Seeded so SSR/client
  * agree. */
+/* The x/y range each scatter draws from, kept out here because a star has to
+ * be able to re-roll INSIDE its own field for the lifetime of the page — a
+ * dust mote that wandered into the near field would parallax wrongly. */
+const SPARK_BANDS = [
+  { x0: -44, xs: 88, y0: -26, ys: 52 }, // near sparks
+  { x0: -46, xs: 92, y0: -30, ys: 58 }, // deep stars
+  { x0: -49, xs: 98, y0: -34, ys: 66 }, // dust
+];
+
 const sprng = mulberry32(21);
 const SPARKS: SceneLayer[] = [];
 {
@@ -224,6 +234,7 @@ const SPARKS: SceneLayer[] = [];
       // different one, so no two neighbouring particles blink in lockstep and
       // the seeded layout stays byte-identical.
       flick: SPARKS.length % 3,
+      band: 0,
       kind: 'spark', spark: light ? 'light' : 'star',
       mask: SPARK_GLYPHS[glyph],
       tone: 'color-mix(in srgb, var(--fg) 85%, var(--bg))',
@@ -259,6 +270,7 @@ const SPARKS: SceneLayer[] = [];
     deep.push({
       id: `deep-star-${deep.length}`, z, w, ar: 1, x, y, op, dur, delay,
       flick: (deep.length + 1) % 3,
+      band: 1,
       kind: 'spark', spark: light ? 'light' : 'star',
       mask: SPARK_GLYPHS[glyph],
       tone: 'color-mix(in srgb, var(--fg) 70%, var(--bg))',
@@ -292,6 +304,7 @@ const SPARKS: SceneLayer[] = [];
     dust.push({
       id: `dust-${dust.length}`, z, w, ar: 1, x, y, op, dur, delay,
       flick: (dust.length + 2) % 3,
+      band: 2,
       kind: 'spark', spark: light ? 'light' : 'star',
       mask: SPARK_GLYPHS[glyph],
       tone: 'color-mix(in srgb, var(--fg) 60%, var(--bg))',
@@ -394,6 +407,42 @@ export default function Hero() {
     return () => io.disconnect();
   }, []);
 
+  /* Star drift. The sky is scattered once, seeded, so SSR and the first
+   * client paint agree — but leaving it there makes the field read as a
+   * printed backdrop rather than a sky. Every star re-rolls its position each
+   * time its twinkle cycle wraps.
+   *
+   * It rides the CSS animation rather than a rAF loop of its own: the
+   * animationiteration event fires at the one instant the star is guaranteed
+   * dark (see the keyframes), the cycle lengths are already random per star
+   * so no two move together, and an idle sky costs nothing. Positions move,
+   * never the depth — a star that changed z would slide through the parallax
+   * and give the whole trick away.
+   *
+   * Math.random, not the seeded sprng: the seed exists to keep hydration
+   * stable, and by now hydration is long done. */
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    function onIteration(e: AnimationEvent) {
+      const mark = e.target;
+      // Lit stars carry a glow element animating on the same cycle; keying off
+      // the glyph alone keeps one move per star per cycle rather than two.
+      if (!(mark instanceof HTMLElement) || !mark.classList.contains('hl-spark')) return;
+      const hl = mark.closest<HTMLElement>('.hl');
+      const bandIndex = Number(hl?.dataset.band);
+      const projection = Number(hl?.dataset.proj);
+      const band = SPARK_BANDS[bandIndex];
+      if (!hl || !band || !Number.isFinite(projection)) return;
+      const x = band.x0 + Math.random() * band.xs;
+      const y = band.y0 + Math.random() * band.ys;
+      hl.style.left = `calc(50% + var(--stageW) * ${((x * projection) / 100).toFixed(4)})`;
+      hl.style.top = `calc(50% + var(--stageH) * ${((y * projection) / 100).toFixed(4)})`;
+    }
+    scene.addEventListener('animationiteration', onIteration);
+    return () => scene.removeEventListener('animationiteration', onIteration);
+  }, []);
+
   useEffect(() => {
     if (!tallHero) return;
     ensureGsap();
@@ -405,12 +454,67 @@ export default function Hero() {
 
     const wash = washRef.current;
 
+    /* ---- camera aim ----------------------------------------------------
+     * The dolly only changes each layer's z. CSS perspective then scales a
+     * layer's offset from the stage centre by P/(P - z), so ANY layer not
+     * dead centre swings further off centre the closer it gets — the camera
+     * is effectively flying at the middle of the stage, which is empty. The
+     * brain sits 11% of the stage above centre, so it climbed out of frame
+     * and left the zoom pointed at a patch of floor.
+     *
+     * Fixing it by moving the brain alone would tear it off the scenery
+     * around it. Instead the whole scene pans, which is what a camera
+     * actually does when it changes what it is pointed at: the brain holds
+     * still and everything else slides past it.
+     *
+     * Offsets are measured off the element rather than recomputed from
+     * --stageW/--stageH, which are min() expressions that do not reliably
+     * resolve to px through getComputedStyle. offsetTop is the `top: calc(...)`
+     * value before the -50% self-centring translate, so subtracting the
+     * stage's half-height gives the layer's own offset directly. */
+    const aimIndex = LAYERS.findIndex((l) => l.id === 'brain');
+    const aimEl = aimIndex >= 0 ? layers[aimIndex] : undefined;
+    const aimLayer = aimIndex >= 0 ? LAYERS[aimIndex] : undefined;
+    let aimOffX = 0;
+    let aimOffY = 0;
+    const measureAim = () => {
+      const scene = sceneRef.current;
+      if (!aimEl || !scene) return;
+      aimOffX = aimEl.offsetLeft - scene.clientWidth / 2;
+      aimOffY = aimEl.offsetTop - scene.clientHeight / 2;
+    };
+    measureAim();
+
     const update = (p: number) => {
       // exponent > 1 makes the camera accelerate through the scroll — the
       // "pulled into the light" feeling of an opening cinematic
       const pl = Math.max(0, (p - DOLLY_START) / (1 - DOLLY_START));
       const pe = Math.pow(pl, 1.55);
       const dz = pe * TRAVEL;
+
+      const scene = sceneRef.current;
+      if (scene && aimLayer) {
+        /* Tracks the subject for the WHOLE dolly. Two earlier attempts to
+           taper this off were both solving a problem that does not exist
+           here: P/(P - z) does run away near the perspective plane, but the
+           brain never gets near it — TRAVEL only carries it to z 460 of a
+           740 clamp, a bounded 2.35x. Damping by the subject's fade made the
+           scale-vs-fade product spike and lurched the scene 106px; freezing
+           the aim early was smooth but let the brain drift back off centre
+           at the end, which reads as the camera releasing it and panning
+           away. Following it all the way is both smooth and steady. */
+        const aimZ = Math.min(aimLayer.z + dz, PERSP - 60);
+        // Where the subject sits on screen now, and where it sat at rest.
+        const now = PERSP / (PERSP - aimZ);
+        const rest = PERSP / (PERSP - aimLayer.z);
+        // Ease from the authored composition to dead centre across the
+        // dolly, so the resting frame is untouched and the zoom ends with
+        // the subject centred rather than merely un-drifted.
+        const centring = 1 - pe;
+        const panX = aimOffX * rest * centring - aimOffX * now;
+        const panY = aimOffY * rest * centring - aimOffY * now;
+        scene.style.transform = `translate3d(${panX.toFixed(2)}px, ${panY.toFixed(2)}px, 0)`;
+      }
 
       layers.forEach((el, i) => {
         const l = LAYERS[i];
@@ -501,9 +605,14 @@ export default function Hero() {
       gsap.ticker.add(lookTick);
     }
 
+    // The aim offsets are measured in px, so they go stale on resize.
+    window.addEventListener('resize', measureAim);
+
     return () => {
       trigger.kill();
       entrance?.kill();
+      window.removeEventListener('resize', measureAim);
+      if (sceneRef.current) sceneRef.current.style.transform = '';
       if (canHover && scene) {
         window.removeEventListener('pointermove', onPointerMove);
         gsap.ticker.remove(lookTick);
@@ -533,6 +642,11 @@ export default function Hero() {
                     transform: layerTransform(l, l.z),
                     opacity: l.op ?? 1,
                   }}
+                  /* Both read back by the drift effect, which rewrites
+                     left/top and needs this layer's own projection factor to
+                     convert a stage-space position into one. */
+                  data-band={l.kind === 'spark' ? l.band : undefined}
+                  data-proj={l.kind === 'spark' ? f.toFixed(4) : undefined}
                 >
                   <div
                     className="hl-prop"
@@ -619,7 +733,6 @@ export default function Hero() {
 
           <div className="hero-bottom">
             <h1 className="hero-name">Blaz Pocrnja.</h1>
-            <div className="hero-line" />
             <div className="hero-bar">
               <div className="hero-bar-left">
                 <HoverLink label="v1.0" />
@@ -759,31 +872,42 @@ export default function Hero() {
         :root[data-theme='light'] .hl-light {
           mix-blend-mode: multiply;
         }
+        /* Each rhythm now opens and closes on BLACK. That dark head is what
+           lets a star move: the drift effect repositions on animationiteration,
+           which fires exactly at the wrap, and with steps(1, end) the 0%
+           keyframe holds until the next one — so the star is invisible for the
+           first few percent of its cycle and lands somewhere new without ever
+           being seen to travel. Take the dark head away and stars teleport
+           across the sky in full view. */
         @keyframes hl-twinkle-a {
-          0% { opacity: 1; }
-          22% { opacity: 0.14; }
-          31% { opacity: 0.9; }
-          52% { opacity: 0.36; }
-          61% { opacity: 1; }
-          86% { opacity: 0.2; }
-          94% { opacity: 0.72; }
+          0% { opacity: 0; }
+          5% { opacity: 1; }
+          27% { opacity: 0.14; }
+          36% { opacity: 0.9; }
+          55% { opacity: 0.36; }
+          64% { opacity: 1; }
+          88% { opacity: 0.2; }
+          95% { opacity: 0; }
         }
         @keyframes hl-twinkle-b {
-          0% { opacity: 0.5; }
-          13% { opacity: 1; }
-          27% { opacity: 0.1; }
-          45% { opacity: 0.82; }
-          58% { opacity: 0.26; }
-          77% { opacity: 1; }
-          90% { opacity: 0.44; }
+          0% { opacity: 0; }
+          6% { opacity: 0.5; }
+          18% { opacity: 1; }
+          31% { opacity: 0.1; }
+          48% { opacity: 0.82; }
+          60% { opacity: 0.26; }
+          79% { opacity: 1; }
+          93% { opacity: 0; }
         }
         @keyframes hl-twinkle-c {
-          0% { opacity: 0.86; }
-          17% { opacity: 0.3; }
-          38% { opacity: 1; }
-          51% { opacity: 0.6; }
-          69% { opacity: 0.12; }
-          83% { opacity: 0.96; }
+          0% { opacity: 0; }
+          4% { opacity: 0.86; }
+          20% { opacity: 0.3; }
+          40% { opacity: 1; }
+          53% { opacity: 0.6; }
+          70% { opacity: 0.12; }
+          85% { opacity: 0.96; }
+          96% { opacity: 0; }
         }
         /* The light source behind the scenery — glow only, no panel fill:
            a visible rectangle edge against the void reads as a seam. */
@@ -943,23 +1067,41 @@ export default function Hero() {
           font-weight: 900;
           letter-spacing: 0;
           line-height: 0.9;
-          margin-bottom: clamp(1.5rem, 4vw, 3rem);
+          /* The trailing 1rem + 1px is what the removed .hero-line divider used
+             to occupy (its own height plus its margin). Folded into the name's
+             margin rather than added back as margin-top on .hero-bar, because
+             adjacent siblings collapse in this block container — a 1rem
+             margin-top simply vanished inside this larger one, and the bar
+             crept 17px closer. Kept so deleting the rule changed nothing but
+             the rule itself. */
+          margin-bottom: calc(clamp(1.5rem, 4vw, 3rem) + 1rem + 1px);
         }
-        .hero-line {
-          height: 1px;
-          background: var(--line);
-          margin-bottom: 1rem;
-        }
+        /* Three columns rather than space-between. space-between only centres
+           its middle child when the OUTER two are the same width, and here
+           they are nowhere near it — "v1.0" is 46px against 174px of nav — so
+           the social links sat exactly (174 - 46) / 2 = 64px left of centre.
+           Equal 1fr tracks either side centre the middle column no matter
+           what flanks it. minmax(0, 1fr) rather than plain 1fr so the outer
+           tracks may shrink below their content on a narrow viewport instead
+           of forcing the bar to overflow. */
         .hero-bar {
-          display: flex;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
           align-items: center;
-          justify-content: space-between;
           font-family: var(--font-mono);
           font-size: 0.8rem;
           text-transform: uppercase;
           letter-spacing: 0.03em;
-          flex-wrap: wrap;
           gap: 0.75rem;
+        }
+        .hero-bar-left {
+          justify-self: start;
+        }
+        .hero-bar-center {
+          justify-self: center;
+        }
+        .hero-bar-right {
+          justify-self: end;
         }
         /* the near-camera hands pass right behind these labels — each group
            carries a translucent page-colored chip so the type stays legible
