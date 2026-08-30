@@ -49,8 +49,9 @@ const srcDir = path.join(root, 'art-src', 'hero');
 const dir = path.join(root, 'public', 'hero');
 
 /* slot <- { src: raw export in art-src/hero/, mode, flop?, flip?, rotate?,
- *           crop? [left,top,w,h], largestOnly?, despeckle? (min ink-blob
- *           area in px to survive — kills scan grit along cut edges),
+ *           crop? [left,top,w,h], extend? (px of band added each side of the
+ *           crop — see below), largestOnly?, despeckle? (min ink-blob area in
+ *           px to survive — kills scan grit along cut edges),
  *           invert?/gamma? (photo mode only) } */
 const MAP = {
   // positive-space variant: the ink drawing itself (cloud linework + candle
@@ -68,8 +69,21 @@ const MAP = {
   // no solid panel, despeckled) so they read as a faint far-off range behind
   // the brain rather than a solid wall (one mirrored variant for the far side)
   // the specific twin-peak/valley motif right beside the candle towers —
-  // already peaks-up in its native orientation, no flip needed
-  'mountains.png': { src: 'clouds-frieze-source.png', mode: 'ink', crop: [2900, 55, 620, 345], despeckle: 140 },
+  // already peaks-up in its native orientation, no flip needed.
+  // THIS CROP IS THE COMPOSITION. A peak either side of a low centre is what
+  // frames the brain; a wider crop at a smaller scale was tried and the motif
+  // is the thing that reads as mountains at all — a long even ridge reads as
+  // what it is, a strip of cloud engraving. `extend` therefore adds band on
+  // both sides WITHOUT touching it or its scale: the layer in Hero.tsx grows
+  // its `w` by the same factor, so every source pixel lands where it always
+  // did and the range simply continues out past the frame.
+  // The right tail is the left one mirrored, because there is no band to the
+  // right — the motif's own peak is where the frieze ends, with the candle
+  // towers immediately after. Mirroring the tail rather than reflecting the
+  // crop about its edge is what avoids a Rorschach: the two tails mirror
+  // EACH OTHER across an asymmetric centre, which reads as a range that
+  // happens to be balanced.
+  'mountains.png': { src: 'clouds-frieze-source.png', mode: 'ink', crop: [2900, 55, 620, 345], extend: 465, despeckle: 140 },
   // ink variants of the creatures for the light theme: there they render as
   // the original engravings — black ink on paper — instead of negatives
   'devil-ink.png': { src: 'devil-tarot-source.png', mode: 'ink', largestOnly: true },
@@ -121,7 +135,7 @@ function labelComponents(alpha, width, height, thresh = 40) {
   return { labels, areas };
 }
 
-for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle, invert, gamma }] of Object.entries(MAP)) {
+for (const [slot, { src, mode, flop, flip, rotate, crop, extend, largestOnly, despeckle, invert, gamma }] of Object.entries(MAP)) {
   const srcPath = path.join(srcDir, src);
   try {
     await access(srcPath);
@@ -130,7 +144,31 @@ for (const [slot, { src, mode, flop, flip, rotate, crop, largestOnly, despeckle,
     continue;
   }
   let pipeline = sharp(srcPath);
-  if (crop) pipeline = pipeline.extract({ left: crop[0], top: crop[1], width: crop[2], height: crop[3] });
+  if (extend) {
+    /* Widen a crop with more of the same band, at the same scale: the real
+       band continuing on the left, and that tail mirrored on the right where
+       the source has nothing left to give. The crop itself is copied through
+       untouched and sits dead centre, so the layer only has to scale its own
+       width by the same factor to leave the composition exactly where it
+       was. Clamped so the tail cannot reach past the source's own edge. */
+    const [cl, ct, cw, ch] = crop;
+    const t = Math.min(extend, cl);
+    const tail = await sharp(srcPath).extract({ left: cl - t, top: ct, width: t, height: ch }).png().toBuffer();
+    const core = await sharp(srcPath).extract({ left: cl, top: ct, width: cw, height: ch }).png().toBuffer();
+    const mirrored = await sharp(tail).flop().png().toBuffer();
+    pipeline = sharp(
+      await sharp({ create: { width: cw + 2 * t, height: ch, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+        .composite([
+          { input: tail, left: 0, top: 0 },
+          { input: core, left: t, top: 0 },
+          { input: mirrored, left: t + cw, top: 0 },
+        ])
+        .png()
+        .toBuffer()
+    );
+  } else if (crop) {
+    pipeline = pipeline.extract({ left: crop[0], top: crop[1], width: crop[2], height: crop[3] });
+  }
   if (rotate) pipeline = pipeline.rotate(rotate);
   if (flip) pipeline = pipeline.flip();
   if (flop) pipeline = pipeline.flop();

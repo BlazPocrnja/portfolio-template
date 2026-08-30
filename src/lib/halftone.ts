@@ -389,6 +389,9 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   let cellHash: Float32Array = new Float32Array(0);
   let viewW = 0;
   let viewH = 0;
+  /* How much larger this layer's LAYOUT box is than the box the viewer
+     actually sees. Solved in resample(), spent in finish(). */
+  let projScale = 1;
   /** Solved in resample(): `pixel` is authored in SCREEN px and scaled into
    * the element's own (projected-down) layout space there. */
   let pixel = pixelMin;
@@ -466,7 +469,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     // into illegible specks. A halftone screen is a property of the PRINT:
     // the same cell size everywhere on the final surface.
     const projected = canvas.getBoundingClientRect().width;
-    const projScale = projected > 0 ? viewW / projected : 1;
+    projScale = projected > 0 ? viewW / projected : 1;
     // Only `pixel` carries the correction. A cell measures pixel * pitch CSS
     // px, so scaling BOTH would compensate twice over — which is exactly how
     // the first attempt landed 12px cells where it wanted 6. Leaving `pitch`
@@ -692,7 +695,17 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   /** Backing store + transform, once whichever lattice path has run. */
   function finish(): boolean {
     indexCells();
-    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    /* Sized against what the viewer SEES, not against the layout box. Every
+       hero layer is laid out oversized and scaled back down by the stage's
+       perspective, so a store sized in layout px holds projScale device
+       pixels for every one the screen can show — 2.2x on the deep layers,
+       which is 5x the memory for no visible difference. Dividing it out
+       renders at exactly screen resolution.
+       This is also what keeps a wide layer legal: the sky spans multiples
+       of the stage's width, and at layout resolution its store ran past the
+       ~16k-px side limit a canvas has, where the browser hands back a blank
+       one rather than an error. */
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR) / Math.max(1, projScale);
     const bw = Math.round(viewW * dpr);
     const bh = Math.round(viewH * dpr);
     if (canvas.width !== bw || canvas.height !== bh) {

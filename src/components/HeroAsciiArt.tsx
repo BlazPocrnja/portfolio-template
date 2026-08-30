@@ -111,6 +111,13 @@ interface Props {
    * full strength. One layer wears the accent; see `accent` in
    * lib/halftone.ts. 'cross' only. */
   glitch?: boolean;
+  /** Ink COLOUR for this layer, overriding the shared one. Carried over from
+   * the flat-mask layers' `tone`: a fill mixed some way toward the
+   * background, so a prop can sit below full --fg and recede into the box
+   * instead of reading at the same strength as everything in front of it. */
+  tone?: string;
+  /** `tone` under the light theme. Falls back to `tone` when unset. */
+  toneLight?: string;
   /** Alternate mask used under the light theme. The creatures ship both a
    * `material` negative (bright figure, for the dark stage) and an `ink`
    * positive (the original black engraving, for paper) — the screens read
@@ -133,7 +140,7 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, churn, glitch }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, tone, toneLight, churn, glitch }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /* The renderers already re-read their COLOUR on a theme flip; swapping the
@@ -272,7 +279,13 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
         ref={canvasRef}
         className="hero-ascii-art"
         data-variant={variant}
-        style={ink != null ? ({ '--linescreen-alpha': `${ink}` } as CSSProperties) : undefined}
+        style={
+          {
+            ...(ink != null ? { '--linescreen-alpha': `${ink}` } : null),
+            ...(tone ? { '--plate-tone': tone } : null),
+            ...(toneLight ? { '--plate-tone-light': toneLight } : null),
+          } as CSSProperties
+        }
         aria-hidden="true"
       />
       {/* dangerouslySetInnerHTML avoids a React SSR/hydration text-escaping mismatch for raw-text elements like <style> */}
@@ -288,7 +301,10 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
           display: block;
           width: 100%;
           height: 100%;
-          color: color-mix(in srgb, var(--fg) 96%, var(--bg));
+          /* Shared ink colour, unless the layer named its own tone. Every
+             renderer reads this off the canvas's computed style, so a
+             per-layer override needs nothing but the variable. */
+          color: var(--plate-tone, color-mix(in srgb, var(--fg) 96%, var(--bg)));
           --ascii-hit-bg: var(--accent);
           --ascii-hit-fg: var(--bg);
           /* line-screen ink strength — see lib/linescreen.ts */
@@ -305,6 +321,9 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
         }
         :root[data-theme='light'] .hero-ascii-art {
           --linescreen-alpha: 0.9;
+          /* A layer with only one tone keeps it in both themes — the
+             color-mix is already written in theme variables. */
+          color: var(--plate-tone-light, var(--plate-tone, color-mix(in srgb, var(--fg) 96%, var(--bg))));
         }
         /* The stitch screen inks harder than the hatching does. Its marks are
            small and mostly hollow, so at the line screen's strength the
