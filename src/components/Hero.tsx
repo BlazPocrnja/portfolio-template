@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { gsap, ScrollTrigger, ensureGsap } from '@/lib/gsap';
 import HoverLink from './HoverLink';
 import HeroAsciiArt from './HeroAsciiArt';
+import SigilPlate from './HeroSigils';
 
 const SOCIALS = [
   { label: 'GitHub', href: 'https://github.com/BlazPocrnja' },
@@ -45,16 +46,6 @@ function mulberry32(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-
-/** Chevron rail matching the laser-cut border: a uniform
- * field of right triangles — square cells, hypotenuses forming one
- * continuous zigzag, alternately anchored to each side of the field — with
- * one margin before the element's own border-right, which is the strip's
- * rule. The tile height is fitted by JS so a whole number of cells fills
- * the screen. */
-const RAIL = `url("data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 72"><path d="M0 0 L0 36 L36.4 36 Z" fill="#000"/><path d="M36.4 36 L36.4 72 L0 72 Z" fill="#000"/><rect x="36" y="0" width="1.4" height="72" fill="#000"/></svg>'
-)}")`;
 
 /* ---- sky glyphs -------------------------------------------------------
  *
@@ -171,6 +162,9 @@ const BASE_LAYERS: SceneLayer[] = [
      two figures read as hatched prints rather than solid silhouettes.
      Each carries a light-theme ink variant: there they render as the
      original engravings (black ink on paper) instead of tonal negatives */
+  /* Also the sheet's still plate, on the right. Deliberately in both: the
+     box shows him screened small and in motion, the plate shows him whole
+     and still, which is a pair rather than a duplicate. */
   { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, ascii: '/hero/devil.png', asciiLight: '/hero/devil-ink.png', render: 'lines', idle: 'float-b' },
   { id: 'cockatrice', z: -490, w: 19, ar: 720 / 661, x: 19, y: 11, ascii: '/hero/cockatrice.png', asciiLight: '/hero/cockatrice-ink.png', render: 'lines', idle: 'float-c' },
   /* hands: one shared near-camera plane — first-person hands entering from
@@ -342,10 +336,8 @@ function layerTransform(l: SceneLayer, z: number) {
   return l.rot ? `${base} rotate(${l.rot}deg)` : base;
 }
 
-const CONTENT_FADE_END = 0.12; // hero tagline/name/nav are gone by this fraction
-
 export default function Hero() {
-  const taglineRef = useRef<HTMLDivElement>(null);
+  const taglineRef = useRef<HTMLParagraphElement>(null);
   const scrollWrapRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const washRef = useRef<HTMLDivElement>(null);
@@ -358,30 +350,15 @@ export default function Hero() {
     gsap.fromTo(
       taglineRef.current,
       { opacity: 0, y: 16 },
-      { opacity: 1, y: 0, duration: 1, delay: 0.6, ease: 'power3.out' }
+      // clearProps on opacity alone: the inline value this settles on would
+      // otherwise outrank the scroll fade and leave the tagline hanging,
+      // blurred but visible, after everything around it had gone.
+      { opacity: 1, y: 0, duration: 1, delay: 0.6, ease: 'power3.out', clearProps: 'opacity' }
     );
   }, []);
 
   useEffect(() => {
     setTallHero(!window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  }, []);
-
-  // Fit the rail pattern: snap the repeat-tile height so a whole number of
-  // triangle cells fills the rail exactly — no clipped cell at the bottom.
-  useEffect(() => {
-    const wrap = scrollWrapRef.current;
-    if (!wrap) return;
-    const rail = wrap.querySelector<HTMLElement>('.hero-rail');
-    const fit = () => {
-      if (!rail) return;
-      const h = rail.clientHeight;
-      const idealTile = rail.clientWidth * (72 / 40); // 2 square-ish cells per tile
-      const n = Math.max(1, Math.round(h / idealTile));
-      wrap.style.setProperty('--rail-tile', `${(h / n).toFixed(2)}px`);
-    };
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
   }, []);
 
   // Tracks whether any part of the hero (including mid-flythrough, not just
@@ -526,9 +503,11 @@ export default function Hero() {
         el.style.opacity = op.toFixed(3);
       });
 
-      const fadeP = Math.min(1, p / CONTENT_FADE_END);
-      content.style.opacity = (1 - fadeP).toFixed(3);
-      content.style.filter = fadeP > 0 ? `blur(${(fadeP * 6).toFixed(1)}px)` : 'none';
+      // The type does NOT fade. It did when it was an overlay lying across a
+      // full-bleed picture and had to get out of the way; on the plate it is
+      // panels of their own beside the picture, with nothing to get out of
+      // the way OF — and a sheet that empties itself as you scroll is just a
+      // sheet you can't read.
 
       // Finale: the light swallows the screen over the last stretch, so the
       // sticky release hands the next section a bright frame to rise over.
@@ -572,7 +551,9 @@ export default function Hero() {
       const ir = { immediateRender: true } as const;
       entrance = gsap.timeline({ delay: 2.3, defaults: { ease: 'power3.out' } });
       entrance
-        .from(q('.hero-rail'), { opacity: 0, duration: 0.7, ...ir }, 0)
+        // clearProps, or the inline opacity this tween settles on outranks
+        // the scroll fade's own rule and the type never goes.
+        .from(q('.hp'), { opacity: 0, duration: 0.7, stagger: 0.04, clearProps: 'opacity', ...ir }, 0)
         .from(prop('interior'), { opacity: 0, duration: 1.0, ...ir }, 0.1)
         .from(prop('floor'), { opacity: 0, yPercent: 18, duration: 0.9, ...ir }, 0.35)
         .from(prop('clouds'), { yPercent: -180, duration: 1.0, ...ir }, 0.5)
@@ -624,8 +605,90 @@ export default function Hero() {
   return (
     <div ref={scrollWrapRef} className={`hero-scroll-wrap${tallHero ? '' : ' is-compact'}`}>
       <section className="hero">
-        <div className="hero-canvas" aria-hidden="true">
-          <div ref={sceneRef} className="hero-scene">
+        {/* THE PLATE. The hero is one printed sheet subdivided into panels of
+            deliberately unequal size — masthead, cartouches, a screened
+            engraving, the box itself — rather than one full-bleed picture
+            with type laid over it. Three things it takes from the sleeves it
+            is modelled on: no two panels the same size, no two panels the
+            same KIND of thing (type, ornament, still image, moving picture),
+            and a focal point that sits off centre. The hairlines between
+            panels are the grid's own 1px gap letting the plate's ink through
+            — see .hero-plate — so no two neighbours can ever double a rule. */}
+        <div ref={contentRef} className="hero-plate">
+          <div className="hp hp-mark">
+            {/* One cartouche, alone and large — the sleeve's star panel. */}
+            <SigilPlate units={1} seed={41} skip={0} />
+          </div>
+
+          <header className="hp hp-mast">
+            <div className="hp-index">
+              <span>Full-stack &amp; product</span>
+              <span>Oil &amp; mixed media</span>
+            </div>
+            <h1 className="hero-name">Blaz Pocrnja.</h1>
+            <p ref={taglineRef} className="hero-tagline">
+              Quiet creator, <span className="other-accent">bringing ideas to life</span>, through
+              motion, detail and softness.
+            </p>
+          </header>
+
+          <div className="hp hp-col">
+            <SigilPlate axis="y" seed={7} skip={7} />
+          </div>
+
+          <div className="hp hp-band">
+            <SigilPlate axis="x" seed={23} skip={1} />
+          </div>
+
+          <dl className="hp hp-cred">
+            <dt>Discipline</dt>
+            <dd>Full-stack / product</dd>
+            <dt>Practice</dt>
+            <dd>Oil / mixed media</dd>
+            <dt>Built with</dt>
+            <dd>Astro / React / GSAP</dd>
+            <dt>Edition</dt>
+            <dd>V1.0</dd>
+          </dl>
+
+          {/* The still plate against the moving one: the same engraving
+              vocabulary as the box, screened once and left alone. It answers
+              the cursor like everything else on the sheet. */}
+          <div className="hp hp-art">
+            <div className="hp-art-inner">
+              <HeroAsciiArt
+                src="/hero/devil.png"
+                srcLight="/hero/devil-ink.png"
+                seed={97}
+                variant="cross"
+                ink={0.9}
+              />
+            </div>
+          </div>
+
+          <nav className="hp hp-nav" aria-label="Hero navigation">
+            <div className="hp-nav-main">
+              {NAV.map((n) => (
+                <a key={n.label} href={n.href}>
+                  <HoverLink label={n.label} />
+                </a>
+              ))}
+            </div>
+            <div className="hp-nav-social">
+              {SOCIALS.map((s, i) => (
+                <span key={s.label}>
+                  <a href={s.href} target="_blank" rel="noopener noreferrer">
+                    <HoverLink label={s.label} />
+                  </a>
+                  {i < SOCIALS.length - 1 && <span className="sep">/</span>}
+                </span>
+              ))}
+            </div>
+          </nav>
+
+          <div className="hp hp-scene">
+            <div className="hero-canvas" aria-hidden="true">
+              <div ref={sceneRef} className="hero-scene">
             {LAYERS.map((l, i) => {
               const f = proj(l.z);
               return (
@@ -715,47 +778,11 @@ export default function Hero() {
                 </div>
               );
             })}
-          </div>
-
-          {/* The screen IS the proscenium: dogtooth rails pinned to the
-              viewport edges, outside the dolly — they never fly past. */}
-          <div className="hero-rail is-left" />
-          <div className="hero-rail is-right" />
-        </div>
-
-        <div ref={washRef} className="hero-wash" aria-hidden="true" />
-
-        <div ref={contentRef} className="hero-content">
-          <div ref={taglineRef} className="hero-tagline">
-            Quiet creator, <span className="other-accent">bringing ideas to life</span>,
-            <br />
-            through motion, detail and softness.
-          </div>
-
-          <div className="hero-bottom">
-            <h1 className="hero-name">Blaz Pocrnja.</h1>
-            <div className="hero-bar">
-              <div className="hero-bar-left">
-                <HoverLink label="v1.0" />
               </div>
-              <nav className="hero-bar-center" aria-label="Social links">
-                {SOCIALS.map((s, i) => (
-                  <span key={s.label} style={{ display: 'flex', gap: '0.5em' }}>
-                    <a href={s.href} target="_blank" rel="noopener noreferrer">
-                      <HoverLink label={s.label} />
-                    </a>
-                    {i < SOCIALS.length - 1 && <span className="sep">/</span>}
-                  </span>
-                ))}
-              </nav>
-              <nav className="hero-bar-right" aria-label="Main navigation">
-                {NAV.map((n) => (
-                  <a key={n.label} href={n.href}>
-                    <HoverLink label={n.label} />
-                  </a>
-                ))}
-              </nav>
             </div>
+            {/* The finale wash lives INSIDE the box's panel now: the light
+                swallowing the picture, not the page. */}
+            <div ref={washRef} className="hero-wash" aria-hidden="true" />
           </div>
         </div>
       </section>
@@ -779,6 +806,74 @@ export default function Hero() {
         .hero-scroll-wrap.is-compact .hero {
           position: relative;
         }
+        /* THE PLATE ------------------------------------------------------
+           Unequal columns and rows on purpose. The areas are laid out so the
+           box lands LOW AND LEFT OF CENTRE with the tall engraving answering
+           it on the right — a focal point on the axis is the one thing that
+           would make this read as a template. Every track is minmax(0, ...)
+           so a panel's contents can never push the grid wider than the
+           screen. */
+        .hero-plate {
+          position: absolute;
+          inset: clamp(0.6rem, 1.4vw, 1.4rem);
+          z-index: 1;
+          display: grid;
+          grid-template-columns: minmax(0, 0.52fr) minmax(0, 1.35fr) minmax(0, 0.72fr) minmax(0, 0.86fr);
+          grid-template-rows: auto auto minmax(0, 1fr) auto;
+          grid-template-areas:
+            'mark  mast  mast  art'
+            'col   band  cred  art'
+            'col   scene scene art'
+            'col   scene scene nav';
+          /* The rules between panels ARE the gap: one pixel of the plate's
+             ink showing through, with every panel painting its own ground on
+             top. Borders would double up wherever two panels met and would
+             need unpicking per edge; this cannot. */
+          gap: 1px;
+          background: var(--plate-ink);
+          border: 1px solid var(--plate-ink);
+          --plate-ink: color-mix(in srgb, var(--fg) 30%, var(--bg));
+        }
+        .hp {
+          position: relative;
+          min-width: 0;
+          min-height: 0;
+          background: var(--bg);
+          overflow: hidden;
+          color: color-mix(in srgb, var(--fg) 54%, var(--bg));
+        }
+        .hp-mark { grid-area: mark; }
+        .hp-mast { grid-area: mast; }
+        .hp-col { grid-area: col; }
+        .hp-band { grid-area: band; }
+        .hp-cred { grid-area: cred; }
+        .hp-art {
+          grid-area: art;
+          display: grid;
+          place-items: center;
+        }
+        /* The engraving holds ITS OWN aspect inside the panel rather than
+           being stretched to it. Every screen renderer resamples its source
+           straight onto its box, which is right for the scene — those layers
+           are authored to their panel's ratio — and wrong here, where the
+           panel's shape is decided by the sheet's columns. What is left over
+           is margin, which is what a plate does with a picture anyway. */
+        .hp-art-inner {
+          position: relative;
+          width: 100%;
+          aspect-ratio: 555 / 1024;
+          max-height: 100%;
+        }
+        .hp-scene { grid-area: scene; }
+        .hp-nav { grid-area: nav; }
+
+        /* The box's own panel is the containing block for the stage, so the
+           scene's size is solved against THIS PANEL and not the viewport —
+           which is the whole reason the flythrough can be one element in a
+           composition instead of the composition itself. */
+        .hp-scene {
+          container-type: size;
+        }
         .hero-canvas {
           position: absolute;
           inset: 0;
@@ -789,13 +884,15 @@ export default function Hero() {
           position: absolute;
           inset: 0;
           perspective: ${PERSP}px;
-          --stageW: min(94vw, 140vh);
+          /* CONTAIN. Covering the panel was a mistake: it crops the stage to
+             whichever axis is tighter and the flythrough opens already well
+             inside the box, with the frieze and the far range pushed off
+             frame before the dolly has moved at all. There is nothing to
+             letterbox against anyway — the interior and the floor are laid
+             out at 99% and 170% of the stage, so they run past its edges and
+             fill the panel regardless of how the stage itself is solved. */
+          --stageW: min(92cqw, 132cqh);
           --stageH: calc(var(--stageW) / 1.6);
-        }
-        @media (max-width: 640px) {
-          .hero-scene {
-            --stageW: min(96vw, 120vh);
-          }
         }
         .hl {
           position: absolute;
@@ -937,38 +1034,32 @@ export default function Hero() {
           -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent 92%);
           mask-image: radial-gradient(closest-side, #000 45%, transparent 92%);
         }
-        /* Screen-edge proscenium rails: full viewport height, alternating
-           right triangles like the laser-cut border of the physical box.
-           The strip itself is SOLID (page-colored) — the scene never shows
-           through it; the triangles paint on top via the mask. */
-        .hero-rail {
-          position: absolute;
-          top: 0;
-          bottom: 0;
-          width: clamp(44px, 5.2vw, 92px);
-          background: var(--bg);
-          /* the strip's rule — flips to the correct side on the mirrored
-             right rail along with the rest of the element */
-          border-right: 2px solid color-mix(in srgb, var(--fg) 40%, var(--bg));
-        }
-        .hero-rail::before {
-          content: '';
+        /* Cartouche panels — see HeroSigils.tsx for what is in them. */
+        .sigil-plate {
           position: absolute;
           inset: 0;
-          background: color-mix(in srgb, var(--fg) 40%, var(--bg));
-          -webkit-mask-image: ${RAIL};
-          mask-image: ${RAIL};
-          -webkit-mask-size: 100% var(--rail-tile, auto);
-          mask-size: 100% var(--rail-tile, auto);
-          -webkit-mask-repeat: repeat-y;
-          mask-repeat: repeat-y;
         }
-        .hero-rail.is-left {
-          left: 0;
+        .sigil-plate-svg {
+          display: block;
+          width: 100%;
+          height: 100%;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1;
+          stroke-linecap: square;
         }
-        .hero-rail.is-right {
-          right: 0;
-          transform: scaleX(-1);
+        /* Hairlines that stay hairlines. The plate is stretched to its panel,
+           so a stroke in user units would come out twice as heavy in a wide
+           panel as a narrow one — this pins every line to one device pixel,
+           which is what a drawn plate looks like. Set on the shapes, not the
+           root: vector-effect does not inherit. */
+        .sigil-plate-svg * {
+          vector-effect: non-scaling-stroke;
+        }
+        /* The rules between cartouches sit back from the figures, so a panel
+           reads as a run of drawings rather than as a grid. */
+        .sigil-plate-svg .sigil-rule {
+          stroke: color-mix(in srgb, currentColor 55%, transparent);
         }
         /* Idle life: candle-flicker on the light, game-style idle loops on
            the cast. These animate INNER elements only — the outer .hl
@@ -1030,105 +1121,165 @@ export default function Hero() {
             color-mix(in srgb, var(--accent) 18%, #fff) 55%,
             #fff 100%);
         }
-        .hero-content {
-          position: absolute;
-          inset: 0;
-          z-index: 1;
-          pointer-events: none;
-          will-change: opacity, filter;
+        /* PANEL TYPE ------------------------------------------------------
+           Each panel is its own little page: its own padding, its own type
+           role. The four locked roles do the sorting — Druk for the name,
+           Austin for the line under it, mono for anything that behaves like
+           a label or a spec. Nothing here is centred; the sheet's rhythm
+           comes from where a block starts, not from where its middle is. */
+        .hp-mast {
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+          gap: 0.85rem;
+          padding: clamp(0.9rem, 1.8vw, 1.75rem);
         }
-        /* Only the actual interactive bits re-enable pointer-events, not
-           whole containers like .hero-bottom — that div's empty space is
-           still a hit-testable box otherwise, and at z-index 1 it sits above
-           the canvas, shadowing hover on anything beneath it (the ascii
-           layers, once they became hoverable). Same fix as .footer-content. */
-        .hero-content a,
-        .hero-content .chr-hover {
-          pointer-events: auto;
-        }
-        .hero-tagline {
-          position: absolute;
-          top: var(--container-pad);
-          left: var(--container-pad);
-          font-family: var(--font-serif);
-          font-size: clamp(1.6rem, 3.2vw, 2.6rem);
-          font-weight: 400;
-          line-height: 1.3;
-          max-width: 14ch;
-        }
-        .hero-bottom {
-          position: absolute;
-          left: var(--container-pad);
-          right: var(--container-pad);
-          bottom: var(--container-pad);
+        /* The two halves of the practice, stated flat as an index line —
+           the sleeve's track listing, not a tagline. */
+        .hp-index {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.35em 1.6em;
+          font-family: var(--font-mono);
+          font-size: clamp(0.62rem, 0.78vw, 0.76rem);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--fg-dim);
         }
         .hero-name {
           font-family: var(--font-display);
-          font-size: clamp(2.5rem, 9vw, 6.5rem);
+          /* Solved against the PANEL, not the viewport: this block is about
+             55% of the sheet, and a vw-scaled name overshot its own cell on
+             every screen wider than a laptop. */
+          font-size: clamp(1.9rem, 7.2cqw, 5.5rem);
           font-weight: 900;
           letter-spacing: 0;
-          line-height: 0.9;
-          /* The trailing 1rem + 1px is what the removed .hero-line divider used
-             to occupy (its own height plus its margin). Folded into the name's
-             margin rather than added back as margin-top on .hero-bar, because
-             adjacent siblings collapse in this block container — a 1rem
-             margin-top simply vanished inside this larger one, and the bar
-             crept 17px closer. Kept so deleting the rule changed nothing but
-             the rule itself. */
-          margin-bottom: calc(clamp(1.5rem, 4vw, 3rem) + 1rem + 1px);
+          line-height: 0.88;
+          margin: 0;
+          color: var(--fg);
         }
-        /* Three columns rather than space-between. space-between only centres
-           its middle child when the OUTER two are the same width, and here
-           they are nowhere near it — "v1.0" is 46px against 174px of nav — so
-           the social links sat exactly (174 - 46) / 2 = 64px left of centre.
-           Equal 1fr tracks either side centre the middle column no matter
-           what flanks it. minmax(0, 1fr) rather than plain 1fr so the outer
-           tracks may shrink below their content on a narrow viewport instead
-           of forcing the bar to overflow. */
-        .hero-bar {
+        .hp-mast {
+          container-type: inline-size;
+        }
+        .hero-tagline {
+          margin: 0;
+          font-family: var(--font-serif);
+          font-size: clamp(0.95rem, 1.55cqw, 1.4rem);
+          font-weight: 400;
+          line-height: 1.32;
+          max-width: 34ch;
+          color: var(--fg);
+        }
+        /* The credits block: the densest thing on the sheet, and deliberately
+           smaller than it wants to be. On the sleeves this is a paragraph of
+           6pt agate nobody reads from across the room — it is there as
+           TEXTURE that happens to also be true. */
+        .hp-cred {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-          align-items: center;
+          grid-template-columns: auto minmax(0, 1fr);
+          align-content: start;
+          gap: 0.28em 0.9em;
+          margin: 0;
+          padding: clamp(0.75rem, 1.4vw, 1.15rem);
           font-family: var(--font-mono);
-          font-size: 0.8rem;
+          font-size: clamp(0.56rem, 0.68vw, 0.7rem);
+          line-height: 1.35;
           text-transform: uppercase;
-          letter-spacing: 0.03em;
-          gap: 0.75rem;
+          letter-spacing: 0.05em;
         }
-        .hero-bar-left {
-          justify-self: start;
+        .hp-cred dt {
+          color: var(--fg-dim);
+          white-space: nowrap;
         }
-        .hero-bar-center {
-          justify-self: center;
+        .hp-cred dd {
+          margin: 0;
+          color: var(--fg);
         }
-        .hero-bar-right {
-          justify-self: end;
-        }
-        /* the near-camera hands pass right behind these labels — each group
-           carries a translucent page-colored chip so the type stays legible
-           over the dither without walling off the scene */
-        .hero-bar-left,
-        .hero-bar-center,
-        .hero-bar-right {
-          background: color-mix(in srgb, var(--bg) 72%, transparent);
-          padding: 0.3em 0.55em;
-          margin: -0.3em -0.55em;
-          border-radius: 4px;
-        }
-        .hero-bar-center {
+        .hp-nav {
           display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: clamp(0.75rem, 1.4vw, 1.15rem);
+          font-family: var(--font-mono);
+          font-size: clamp(0.66rem, 0.8vw, 0.8rem);
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .hp-nav-main {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.35em 1.35em;
+          color: var(--fg);
+        }
+        .hp-nav-social {
+          display: flex;
+          flex-wrap: wrap;
           gap: 0.5em;
+          color: var(--fg-dim);
         }
-        .hero-bar-right {
-          display: flex;
-          gap: 1.5em;
+        /* Each social is a link and its trailing slash in one span, so the
+           flex gap lands BETWEEN pairs and not between a name and its own
+           separator. */
+        .hp-nav-social > span {
+          display: inline-flex;
+          gap: 0.5em;
         }
         .sep {
           color: var(--fg-dim);
         }
-        @media (max-width: 640px) {
-          .hero-tagline {
-            max-width: calc(100% - 2 * var(--container-pad) - 5.5rem);
+        /* The band is short and wide; the column tall and narrow. Both hold
+           their cartouches edge to edge — the panel's own gap is the frame,
+           so an inset here would only produce a second one. */
+        .hp-band,
+        .hp-col,
+        .hp-mark {
+          min-height: 0;
+        }
+        .hp-band {
+          min-height: clamp(46px, 5.5vw, 84px);
+        }
+
+        /* NARROW ----------------------------------------------------------
+           The four-column sheet collapses to one, with the cartouche column
+           kept as the right-hand margin — it is the cheapest way to keep the
+           thing reading as a printed plate rather than as a stack of divs.
+           The tall engraving and the lone cartouche are what go: at this
+           width they would each be a postage stamp. */
+        @media (max-width: 900px) {
+          .hero-plate {
+            grid-template-columns: minmax(0, 1fr) clamp(40px, 12vw, 64px);
+            /* The masthead takes the slack, not the picture: the box holds a
+               fixed shape and the type block grows to whatever is left. A
+               1fr picture panel on a tall phone screen is a letterbox with a
+               lot of black above and below it. */
+            grid-template-rows: minmax(0, 1fr) auto auto auto;
+            grid-template-areas:
+              'mast  col'
+              'scene col'
+              'band  col'
+              'nav   col';
+          }
+          .hp-scene {
+            aspect-ratio: 3 / 2;
+          }
+          /* Masthead type sits at the FOOT of its panel, right above the
+             picture — centring it in a tall phone-sized cell leaves a band
+             of nothing over the type and another under it. */
+          .hp-mast {
+            justify-content: flex-end;
+            padding-bottom: clamp(1rem, 4vw, 1.75rem);
+          }
+          .hp-mark,
+          .hp-art,
+          .hp-cred {
+            display: none;
+          }
+          .hp-nav {
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
           }
         }
         @media (prefers-reduced-motion: reduce) {
