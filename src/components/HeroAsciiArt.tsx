@@ -73,12 +73,23 @@ const CROSS_CUTOFF = 0.12;
    curve is the more direct lever on that. */
 const SCREEN_ANGLE = 0;
 
+/* Patch radius for the line screen, in ITS cells — a lane across, a band
+   deep. Bigger than the number the stitch screens get because a line-screen
+   cell is half a stitch cell (LINE_PITCH 3 against CROSS_PITCH 6), so it
+   takes about twice as many of them to cover the same area of the picture.
+   Both land the patch at roughly the same size on screen, which is the point:
+   the cursor is one size, whatever grain it happens to be over. */
+const LINE_PATCH_CELLS = 6;
+
 interface Props {
   /** Built alpha-mask PNG in /hero (brain.png, hand-left.png, ...) — NOT the raw -source.png, which hasn't been through build-hero-masks.mjs's alpha extraction yet. */
   src: string;
   /** Varies the random glyph pick within a pool bucket so different panels don't share identical noise. */
   seed?: number;
-  /** Ripple radius in grid cells for the hover glitch. */
+  /** Patch radius in grid cells for the cursor effect. Cells, not px, so it
+   * covers the same number of marks on every layer — see `patchRadius` in
+   * lib/halftone.ts for why a px radius made the hands' patch three times
+   * the brain's. */
   hoverRadius?: number;
   /** Which renderer draws this layer. 'ascii' is the symbol mosaic;
    * 'lines' is the engraving-style line screen (see lib/linescreen.ts);
@@ -94,6 +105,12 @@ interface Props {
   /** Share of cells re-rolling their mark each tick, 0 to freeze. The scene
    * derives this from the layer's depth — see churnForDepth in Hero.tsx. */
   churn?: number;
+  /** Dresses this layer's cursor patch in the ACCENT — solid tiles with
+   * their marks knocked out, the ascii mosaic's glitch. Off, the same patch
+   * simply brightens: its marks come back at the top of their alphabet at
+   * full strength. One layer wears the accent; see `accent` in
+   * lib/halftone.ts. 'cross' only. */
+  glitch?: boolean;
   /** Alternate mask used under the light theme. The creatures ship both a
    * `material` negative (bright figure, for the dark stage) and an `ink`
    * positive (the original black engraving, for paper) — the screens read
@@ -116,7 +133,7 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, churn }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, churn, glitch }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /* The renderers already re-read their COLOUR on a theme flip; swapping the
@@ -146,11 +163,11 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const renderer =
       variant === 'lines'
-        ? createLineScreen(canvas, { pixel: LINE_PIXEL, pitch: LINE_PITCH })
+        ? createLineScreen(canvas, { pixel: LINE_PIXEL, pitch: LINE_PITCH, patchRadius: LINE_PATCH_CELLS })
         : variant === 'dots'
-          ? createDotScreen(canvas, { pixel: DOT_PIXEL, pitch: DOT_PITCH, gamma: DOT_GAMMA, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn })
+          ? createDotScreen(canvas, { pixel: DOT_PIXEL, pitch: DOT_PITCH, gamma: DOT_GAMMA, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn, patchRadius: hoverRadius })
           : variant === 'cross'
-            ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn })
+            ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn, accent: glitch, patchRadius: hoverRadius })
             : variant === 'dither'
               ? createDither(canvas)
               : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
@@ -245,7 +262,7 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
       renderer.destroy();
       window.clearTimeout(resizeTimer);
     };
-  }, [source, seed, hoverRadius, variant, churn]);
+  }, [source, seed, hoverRadius, variant, churn, glitch]);
 
   return (
     <div ref={wrapRef} className="hero-ascii-art-wrap">
@@ -276,8 +293,15 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
           --ascii-hit-fg: var(--bg);
           /* line-screen ink strength — see lib/linescreen.ts */
           --linescreen-alpha: 0.55;
-          pointer-events: auto;
-          cursor: none;
+          /* NOT auto. A canvas hit-tests as its BOX, and these layers are
+             overlapping rectangles of mostly-empty art — so whichever
+             rectangle sat nearest the camera took the cursor for everything
+             behind it (measured: the clouds panel owned the top half of the
+             brain, the cockatrice its bottom-right corner, and the brain's
+             hover response was unreachable there). The renderers watch the
+             window instead and each decides whether the cursor is over its
+             own ART. See lib/pointer.ts. */
+          pointer-events: none;
         }
         :root[data-theme='light'] .hero-ascii-art {
           --linescreen-alpha: 0.9;

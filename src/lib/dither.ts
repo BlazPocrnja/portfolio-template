@@ -81,6 +81,8 @@ function hash(x: number, y: number, seed: number): number {
  * off the element's own CSS, ink strength from --linescreen-alpha) so all
  * four stay swappable behind one component.
  */
+import { watchPointer } from './pointer';
+
 export function createDither(canvas: HTMLCanvasElement, options: DitherOptions = {}) {
   const maxSide = options.maxSide ?? 1100;
   const radiusFrac = options.radius ?? 0.3;
@@ -284,27 +286,25 @@ export function createDither(canvas: HTMLCanvasElement, options: DitherOptions =
       render();
     });
   }
-  function onMove(e: MouseEvent) {
-    // offsetX/Y, NOT clientX minus the bounding rect. Every hero layer is
-    // laid out oversized and scaled back down by the stage's perspective
-    // transform, so the bounding rect is the PROJECTED box (the brain: 347px
-    // on screen) while everything else in here — clientWidth, the buffer,
-    // the grain — is in the element's own LAYOUT space (731px). Subtracting
-    // the rect hands back projected pixels, and dividing those by a layout
-    // width put the hover at less than half the distance from the corner it
-    // should have been. offsetX is already in the target's own untransformed
-    // coordinates, which is the space the rest of this renderer speaks.
-    pointerX = e.offsetX;
-    pointerY = e.offsetY;
-    scheduleHover();
-  }
   function onLeave() {
+    if (pointerX < 0) return;
     pointerX = -1;
     pointerY = -1;
     scheduleHover();
   }
-  canvas.addEventListener('mousemove', onMove);
-  canvas.addEventListener('mouseleave', onLeave);
+
+  /* Window-routed rather than bound to the canvas: the hero's layers overlap
+   * as rectangles and the browser can only hand a move to one of them, so
+   * the canvases no longer hit-test at all. No ink gate here — unlike the
+   * screens, this variant draws the art as authored across its whole box. */
+  const unwatchPointer = watchPointer(canvas, {
+    move(x, y) {
+      pointerX = x;
+      pointerY = y;
+      scheduleHover();
+    },
+    leave: onLeave,
+  });
 
   return {
     setImage,
@@ -312,8 +312,7 @@ export function createDither(canvas: HTMLCanvasElement, options: DitherOptions =
     destroy() {
       if (hoverRaf) cancelAnimationFrame(hoverRaf);
       themeObserver.disconnect();
-      canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('mouseleave', onLeave);
+      unwatchPointer();
     },
   };
 }

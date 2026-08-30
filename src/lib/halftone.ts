@@ -72,8 +72,13 @@ export interface DotScreenOptions {
   gamma?: number;
   /** Fallback ink strength when --linescreen-alpha isn't set in CSS. */
   opacity?: number;
-  /** Pointer bulge radius in CSS px; dots fatten toward the cursor. */
-  hoverRadius?: number;
+  /** Patch radius in CELLS. In cells and not px so the patch covers the same
+   * number of marks on every layer, however coarse that layer's screen is or
+   * however far back the stage has pushed it — a radius in px lands a patch
+   * three times the size on a near-camera layer, which is exactly how the
+   * hands ended up with a hover you could not miss and the brain one you
+   * could. Every mark jitters this by up to ±100%; see THE PATCH RULE. */
+  patchRadius?: number;
   /** Fraction of inked cells that re-roll their mark each tick. A cell can
    * only move one step along the alphabet, since the marks are strictly
    * ordered by weight and there is no "different glyph, same density" to
@@ -81,10 +86,22 @@ export interface DotScreenOptions {
    * field boils without the average tone drifting. 0 keeps the screen
    * static and costs nothing at all. */
   churn?: number;
-  /** Peak extra ink under the cursor. For 'dot' it is extra radius as a
-   * fraction of the cell; for 'cross' it is how far up the glyph ramp a cell
-   * is pushed, as a fraction of the ramp's length. */
-  hoverGain?: number;
+  /** Which of the two dresses the patch wears. false (default) BRIGHTENS:
+   * each mark climbs `litStep` rungs of its own alphabet, painted at full
+   * strength over a field inked at less. true is the GLITCH, and belongs to
+   * one layer: the marks become solid accent tiles with their glyph knocked
+   * out of them in the page background. Everything else about the two —
+   * which marks, for how long, how they churn — is the same code. */
+  accent?: boolean;
+  /** How many rungs of its own alphabet a brightened mark climbs, before a
+   * per-pass ±1 of churn. Relative, not a target: raising it lifts the whole
+   * patch, it does not flatten the picture's own light out of it. */
+  litStep?: number;
+  /** How long a mark the cursor touched holds what it was given before it
+   * drops back, in ms — for the accent tiles and the brightened marks
+   * alike. Jittered per mark, so the patch frays out behind the cursor
+   * rather than lifting off in one piece. */
+  holdMs?: number;
 }
 
 /* ---- stitch ramp ------------------------------------------------------
@@ -199,8 +216,103 @@ function buildStitchRamp(size: number): Stamp[] {
   return ramp;
 }
 
+import { watchPointer } from './pointer';
+
+/* Integer hash -> 0..1. Stable for a given pair, so a mark keeps its place
+ * in the hover patch's ragged edge on every pass of the cursor — the shape
+ * has to be the SAME broken shape each time or it reads as static rather
+ * than as a torn hole. Integer ops rather than the sin trick: this is
+ * sampled per mark per hover frame. */
+function hash2(x: number, y: number): number {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+
+/* THE PATCH RULE — shared by the pointer's two consequences.
+ *
+ * Membership is BINARY and jittered: a mark is in the patch if the cursor is
+ * inside that mark's OWN radius, which strays up to ±100% from the nominal
+ * one on a hash of where it sits. No falloff term. That is the whole rule,
+ * and it is the reason the glitch reads as a torn hole rather than a shape
+ * drawn on the art.
+ *
+ * It matters that there is no falloff. A smooth 1 - d²/r² ramp underneath
+ * the jitter looks like it should help, and does nothing: a mark near its
+ * own jittered edge is worth almost no ink under that ramp, so extending or
+ * shrinking its radius changes nothing you can see, and what survives is the
+ * smooth core — a spotlight with a slightly fuzzy rim. Density has to be the
+ * only thing that falls off with distance, and here it does, statistically:
+ * every mark is in at the centre, half are in at the nominal radius, a few
+ * stragglers reach twice it.
+ *
+ * What a mark DOES once it is in the patch is the only thing that differs
+ * between layers, and it is a difference of DRESS, not of mechanism: one
+ * `accent` flag picks between an accent tile with the glyph knocked out of
+ * it, and the same mark stepped up its own alphabet in the layer's own ink
+ * at full strength. Same membership, same hold, same churn, same buffer —
+ * only the colours change.
+ *
+ * The consequence is RELATIVE to the mark's own tone: a lit mark climbs a
+ * fixed number of rungs from wherever it already sat, so the art's modelling
+ * survives inside the patch — a shadow stays a shadow, it just comes up.
+ * (The accent dress mirrors instead of climbing, which is its own kind of
+ * relative.) An earlier pass sent every lit mark to a FIXED rung near the
+ * top, on the theory that tone dependence was what made the effect look
+ * radial. It wasn't, and the result was a scatter of blown-out white marks
+ * with the picture's own light thrown away inside the patch.
+ *
+ * What must never come back is a term that varies with DISTANCE from the
+ * cursor. That is the thing that draws a disc, whatever the consequence is
+ * doing: a smooth 1 - d²/r² ramp is worth almost no ink at a mark's own
+ * jittered edge, so extending or shrinking that edge changes nothing you can
+ * see and the smooth core survives as a spotlight with a fuzzy rim. Distance
+ * is allowed to decide WHETHER a mark is in. It is not allowed to decide how
+ * much.
+ *
+ * Both consequences also HOLD. A mark the cursor touched keeps what it was
+ * given for `holdMs`, halved for about half of them on the same hash, and
+ * then drops. That jitter is the point: the patch does not lift off in one
+ * piece when the cursor moves on, it frays away behind it, and a mark that
+ * has not been touched for a while goes out on its own schedule rather than
+ * with its neighbours. Without it the effect snaps to the pointer and reads
+ * as a cursor decoration instead of as something happening to the art.
+ */
+
+
+
 /** Backing-store cap — past 2x the extra pixels just cost fill rate. */
 const MAX_DPR = 2;
+
+/* Resolves a CSS colour string to 8-bit RGB by letting canvas parse it.
+ * Only the hit flash needs this: it writes its two colours straight into a
+ * buffer instead of tinting one, and present()'s single source-in fill can
+ * only carry one colour. Parsing by hand is not an option — getComputedStyle
+ * hands back color(srgb 0.91 0.9 0.89), i.e. 0..1 floats, and the token could
+ * just as well arrive as a hex, an hsl() or a color-mix(). */
+let probeCtx: CanvasRenderingContext2D | null | undefined;
+function resolveColor(css: string, fallback: [number, number, number]): [number, number, number] {
+  if (probeCtx === undefined) {
+    const c = document.createElement('canvas');
+    c.width = 1;
+    c.height = 1;
+    probeCtx = c.getContext('2d', { willReadFrequently: true });
+  }
+  if (!probeCtx || !css) return fallback;
+  probeCtx.clearRect(0, 0, 1, 1);
+  probeCtx.fillStyle = css;
+  probeCtx.fillRect(0, 0, 1, 1);
+  try {
+    const d = probeCtx.getImageData(0, 0, 1, 1).data;
+    // fillStyle silently IGNORES an unparseable value, so a transparent
+    // pixel is how "the token didn't resolve" comes back.
+    if (!d[3]) return fallback;
+    return [d[0], d[1], d[2]];
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Owns one canvas's dot-screen render.
@@ -209,6 +321,16 @@ const MAX_DPR = 2;
  * off the element's own CSS, ink strength from --linescreen-alpha) so all
  * three renderers stay swappable behind one component.
  */
+/** How much a brightened mark lifts its layer's own ink strength, clamped at
+ * full. 1 means it does not lift it at all: the patch paints at exactly the
+ * strength the layer is already inked at, and the mark climbing its alphabet
+ * carries the whole effect. That is the setting, deliberately — an alpha
+ * boost on top reads as a light source shining on the box, where the climb
+ * alone reads as the SCREEN itself thickening where the cursor passes, which
+ * is the only kind of brightening this scene has a vocabulary for. Raise it
+ * to trade the box's depth for punch; see paintHit. */
+const LIT_ALPHA_GAIN = 1;
+
 export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOptions = {}) {
   const markKind = options.mark ?? 'dot';
   const pixelMin = Math.max(1, options.pixel ?? 2);
@@ -220,8 +342,12 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   const cutoff = options.cutoff ?? 0.06;
   const gamma = options.gamma ?? 1.15;
   const opacityDefault = options.opacity ?? 0.62;
-  const hoverRadius = options.hoverRadius ?? 90;
-  const hoverGain = options.hoverGain ?? 0.5;
+  const patchRadius = options.patchRadius ?? 3.5;
+  // Accent dress is stitch-only: it mirrors a cell along the glyph alphabet,
+  // and a scaling disc doesn't have one.
+  const accent = (options.accent ?? false) && markKind === 'cross';
+  const holdMs = options.holdMs ?? 260;
+  const litStep = options.litStep ?? 2;
 
   const ctx = canvas.getContext('2d');
 
@@ -249,6 +375,18 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   let stampSize = 0;
   let ow = 0;
   let oh = 0;
+  /* Coarse "is there ink around here" map, one bucket per lattice cell,
+   * built off the cell list so it works for a turned screen as well as an
+   * upright one. It exists for pointer arbitration only: the layers overlap
+   * as rectangles, so each one has to be able to say whether the cursor is
+   * over its ART before it claims a move. See lib/pointer.ts. */
+  let probe: Uint8Array = new Uint8Array(0);
+  let probeCols = 0;
+  let probeRows = 0;
+  /** One stable 0..1 draw per cell, hashed off its position. Breaks the
+   * hover's footprint (see HOVER_BREAK) and jitters the glitch patch's rim
+   * and hold — everything that must look torn rather than drawn. */
+  let cellHash: Float32Array = new Float32Array(0);
   let viewW = 0;
   let viewH = 0;
   /** Solved in resample(): `pixel` is authored in SCREEN px and scaled into
@@ -265,7 +403,33 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
 
   let pointerX = -1;
   let pointerY = -1;
-  let hoverRaf = 0;
+
+  /* ---- patch state ----------------------------------------------------
+   * A SECOND low-res buffer, blown up over the tinted base. It carries real
+   * RGBA rather than coverage, because the tint pass in present() can only
+   * apply one colour and the patch needs its own: two at once for the accent
+   * dress (tile plus knocked-out glyph), and full-strength ink for the
+   * brightening one, over a field deliberately inked at less. Sparse:
+   * nothing but patched cells is ever written into it, and a cell is wiped
+   * the moment it expires, so the layer costs the size of the patch rather
+   * than the size of the field — which is also why the base buffer is never
+   * touched by the pointer at all. */
+  const hitBuf = document.createElement('canvas');
+  const hitCtx = hitBuf.getContext('2d');
+  let hitImage: ImageData | null = null;
+  /** cell index -> timestamp (ms) the flash drops at. */
+  const hits = new Map<number, number>();
+  /** cell index -> which mark off `ramp` the flashed cell is showing. */
+  const hitGlyphs = new Map<number, number>();
+  let hitRaf = 0;
+  /** Set by mousemove. The patch is only re-laid when the pointer actually
+   * moved, so a parked cursor decays instead of strobing in place. */
+  let hitPending = false;
+  let hitBgRgb: [number, number, number] = [255, 59, 20];
+  let hitFgRgb: [number, number, number] = [0, 0, 0];
+  /** The layer's own ink, resolved to bytes — what the brightening dress
+   * paints its marks in. */
+  let baseRgb: [number, number, number] = [220, 220, 220];
 
   function readColors() {
     const cs = getComputedStyle(canvas);
@@ -275,6 +439,14 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     // dark dots nearly invisible on the light one.
     const v = parseFloat(cs.getPropertyValue('--linescreen-alpha'));
     opacity = Number.isFinite(v) ? v : opacityDefault;
+    if (accent) {
+      // The same two tokens the ascii mosaic reads, so one CSS rule dresses
+      // the glitch wherever it shows up.
+      hitBgRgb = resolveColor(cs.getPropertyValue('--ascii-hit-bg').trim(), hitBgRgb);
+      hitFgRgb = resolveColor(cs.getPropertyValue('--ascii-hit-fg').trim(), hitFgRgb);
+    } else {
+      baseRgb = resolveColor(baseColor, baseRgb);
+    }
   }
 
   /** Resamples the source into the tone field. Only needed when the box
@@ -351,6 +523,15 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
       for (let i = 0; i < ow * oh; i++) field[i] = data[i * 4 + 3] ?? 0;
     }
     image = bctx.createImageData(ow, oh);
+    // Every cell index is about to be rebuilt, so anything still held now
+    // points at a cell that no longer exists.
+    hits.clear();
+    hitGlyphs.clear();
+    if (hitBuf.width !== ow || hitBuf.height !== oh) {
+      hitBuf.width = ow;
+      hitBuf.height = oh;
+    }
+    hitImage = bctx.createImageData(ow, oh);
 
     if (markKind === 'cross') {
       /* Stamp size follows the lattice's PACKING, not the pitch alone. The
@@ -470,8 +651,47 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     return finish();
   }
 
+  /** One pass over the finished cell list for the two things every cell
+   * needs and the lattice loops don't produce: its noise draw, and the ink
+   * probe (one byte per cell-sized bucket, for pointer arbitration). */
+  function indexCells() {
+    probeCols = Math.max(1, Math.ceil(ow / pitch));
+    probeRows = Math.max(1, Math.ceil(oh / pitch));
+    const n = probeCols * probeRows;
+    if (probe.length !== n) probe = new Uint8Array(n);
+    else probe.fill(0);
+    if (cellHash.length < cellCount) cellHash = new Float32Array(cellCount);
+    for (let c = 0; c < cellCount; c++) {
+      cellHash[c] = hash2(Math.round(cellX[c]), Math.round(cellY[c]));
+      if (cellTone[c] <= cutoff) continue;
+      const px = Math.min(probeCols - 1, Math.max(0, (cellX[c] / pitch) | 0));
+      const py = Math.min(probeRows - 1, Math.max(0, (cellY[c] / pitch) | 0));
+      probe[py * probeCols + px] = 1;
+    }
+  }
+
+  /** Is there ink within `reach` buffer px of this point? The question the
+   * pointer router actually needs answered — not "is this exact cell inked"
+   * but "would the cursor do anything here", which for a sparse dithered
+   * subject like the brain is a far more forgiving (and more truthful) test
+   * than sampling a single cell through the gaps in its own stipple. */
+  function inkedNear(bx: number, by: number, reach: number) {
+    if (!probeCols) return false;
+    const rad = Math.max(1, Math.ceil(reach / pitch));
+    const cx = (bx / pitch) | 0;
+    const cy = (by / pitch) | 0;
+    const y0 = Math.max(0, cy - rad), y1 = Math.min(probeRows - 1, cy + rad);
+    const x0 = Math.max(0, cx - rad), x1 = Math.min(probeCols - 1, cx + rad);
+    for (let y = y0; y <= y1; y++) {
+      const rowOff = y * probeCols;
+      for (let x = x0; x <= x1; x++) if (probe[rowOff + x]) return true;
+    }
+    return false;
+  }
+
   /** Backing store + transform, once whichever lattice path has run. */
   function finish(): boolean {
+    indexCells();
     const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
     const bw = Math.round(viewW * dpr);
     const bh = Math.round(viewH * dpr);
@@ -488,15 +708,27 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   /** Half-extent of the block one cell can touch, in buffer px. Used to
    * wipe a single cell before repainting it during a churn tick. */
   function cellReach(maxR: number) {
-    return markKind === 'cross'
-      ? (stampSize >> 1) + 1
-      : Math.ceil(maxR * (1 + hoverGain)) + 2;
+    // A lit mark tops out at the alphabet's own maximum, so nothing reaches
+    // further than an ordinary full-tone one.
+    return markKind === 'cross' ? (stampSize >> 1) + 1 : Math.ceil(maxR) + 2;
   }
 
-  /** Paints one glyph from the ramp with its centre on the cell's. */
-  function stampInto(g: Stamp, ax: number, ay: number) {
-    if (!image) return;
-    const px = image.data;
+  /** Paints one glyph from the ramp with its centre on the cell's. Defaults
+   * to opaque white into the coverage mask — the base field's only caller —
+   * but the hit layer stamps its knocked-out glyph through here too, in a
+   * real colour and into its own buffer. */
+  function stampInto(
+    g: Stamp,
+    ax: number,
+    ay: number,
+    target: ImageData | null = image,
+    cr = 255,
+    cg = 255,
+    cb = 255,
+    ca = 255
+  ) {
+    if (!target) return;
+    const px = target.data;
     const x0 = ax - (stampSize >> 1);
     const y0 = ay - (stampSize >> 1);
     for (let sy = 0; sy < stampSize; sy++) {
@@ -509,10 +741,10 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
         const x = x0 + sx;
         if (x < 0 || x >= ow) continue;
         const i = (rowOff + x) * 4;
-        px[i] = 255;
-        px[i + 1] = 255;
-        px[i + 2] = 255;
-        px[i + 3] = 255;
+        px[i] = cr;
+        px[i + 1] = cg;
+        px[i + 2] = cb;
+        px[i + 3] = ca;
       }
     }
   }
@@ -535,7 +767,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
 
   /** Paints one cell into the buffer. Split out of render() so a churn tick
    * can repaint just the cells that moved instead of the whole field. */
-  function paintCell(c: number, hx: number, hy: number, hr2: number, maxR: number, levels: number) {
+  function paintCell(c: number, maxR: number, levels: number) {
     if (!image) return;
     const px = image.data;
     const v = cellTone[c];
@@ -547,18 +779,10 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
 
     // Shared 0..1 ink amount. Both vocabularies read it the same way — one
     // scales a radius by it, the other indexes an alphabet with it — so the
-    // hover bulge and the tone curve behave identically whichever mark is in
-    // use.
-    let ink = Math.pow(v, gamma);
-    if (hx >= 0) {
-      const dx = centreX - hx;
-      const dy = centreY - hy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < hr2) {
-        const k = 1 - d2 / hr2;
-        ink += hoverGain * k * k;
-      }
-    }
+    // tone curve behaves identically whichever mark is in use. The pointer
+    // does not appear here at all: the patch lives entirely in its own
+    // buffer, over the top.
+    const ink = Math.pow(v, gamma);
 
     if (markKind === 'cross') {
       if (!levels) return;
@@ -608,15 +832,177 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     }
   }
 
-  /** Pointer in RENDERED px, so the bulge lands where the cursor actually is
-   * regardless of the upscale factor. */
-  function hoverArgs() {
-    const hr = hoverRadius / pixel;
+  /* ---- the patch ------------------------------------------------------
+   *
+   * One implementation, both dresses. See THE PATCH RULE at the top of the
+   * file; `accent` is the only thing that branches, and only over colour.
+   */
+
+  /** The tile a flashed cell fills, in buffer px. One PITCH square, not the
+   * stamp's own footprint: the whole point of the effect is contiguous
+   * blocks of colour, so the tiles have to meet edge to edge the way the
+   * ascii mosaic's cell fills do. Sized for an upright screen — turn the
+   * lattice and neighbouring tiles overlap, harmlessly, since they are
+   * opaque and identical. */
+  function hitTile(c: number) {
+    const side = Math.max(1, Math.round(pitch));
+    const off = side >> 1;
+    const bx = Math.round(cellX[c]) - off;
+    const by = Math.round(cellY[c]) - off;
     return {
-      hx: pointerX >= 0 ? pointerX / pixel : -1,
-      hy: pointerY / pixel,
-      hr2: hr * hr,
+      x0: Math.max(0, bx),
+      x1: Math.min(ow - 1, bx + side - 1),
+      y0: Math.max(0, by),
+      y1: Math.min(oh - 1, by + side - 1),
     };
+  }
+
+  /** Per-cell edge jitter in -1..1, off the cell's own stable draw — a cell
+   * keeps its place in the patch's ragged rim on every pass of the cursor,
+   * which is what makes the shape read as a torn hole rather than as
+   * static. */
+  function cellJitter(c: number) {
+    return cellHash[c] * 2 - 1;
+  }
+
+  /** Is this cell in the pointer's patch, and how hard? 0 means outside.
+   * See THE PATCH RULE at the top of the file: binary membership against the
+   * cell's own jittered radius, then a decorrelated per-cell strength. The
+   * membership and the ink probe both go through here, which is the only
+   * way every layer stays the same gesture. `r` is in buffer px. */
+  function patchAmount(c: number, hx: number, hy: number, r: number) {
+    const dx = cellX[c] - hx;
+    const dy = cellY[c] - hy;
+    const d2 = dx * dx + dy * dy;
+    // Jitter can push a cell's own radius out to 2r, so that is how far the
+    // test has to reach before it can reject on distance alone.
+    if (d2 > 4 * r * r) return 0;
+    const n = cellHash[c];
+    const rr = r * (1 + (n * 2 - 1));
+    if (rr <= 0 || d2 > rr * rr) return 0;
+    return 0.55 + 0.45 * ((n * 7.13) % 1);
+  }
+
+  /** The patched cell's mark, re-rolled on every pass so the patch churns
+   * under a moving cursor rather than sitting still.
+   *
+   * Accent: the cell's DENSITY MIRROR off the ramp, plus a step of noise —
+   * what the ascii ripple does, a light cell flashing heavy and a heavy one
+   * light, which is why that patch reads as the image inverting inside it
+   * rather than merely being tinted.
+   *
+   * Brightening: `litStep` rungs UP FROM WHERE THE MARK ALREADY WAS, so a
+   * shadow comes up as a shadow and only the highlights reach the top of the
+   * ramp — the picture's own light survives inside the patch instead of
+   * being flattened out of it. See THE PATCH RULE on why this is safe and
+   * the distance term is not. */
+  function rollHitGlyph(c: number, levels: number) {
+    const base = Math.min(levels - 1, Math.max(0, Math.round(Math.pow(cellTone[c], gamma) * (levels - 1))));
+    if (!accent) {
+      return Math.min(levels - 1, base + litStep + ((Math.random() * 2) | 0));
+    }
+    const mirror = levels - 1 - base;
+    return Math.min(levels - 1, Math.max(0, mirror + ((Math.random() * 3) | 0) - 1));
+  }
+
+  /** Draws one patched cell in whichever dress this layer wears: a solid
+   * accent tile with the glyph knocked out of it in the page background, or
+   * the bare glyph in the layer's own ink at full strength. The mark is the
+   * same either way — the tile is the only extra. */
+  function paintHit(c: number) {
+    if (!hitImage || !ramp.length) return;
+    if (accent) {
+      const px = hitImage.data;
+      const t = hitTile(c);
+      for (let y = t.y0; y <= t.y1; y++) {
+        const rowOff = y * ow;
+        for (let x = t.x0; x <= t.x1; x++) {
+          const i = (rowOff + x) * 4;
+          px[i] = hitBgRgb[0];
+          px[i + 1] = hitBgRgb[1];
+          px[i + 2] = hitBgRgb[2];
+          px[i + 3] = 255;
+        }
+      }
+    }
+    const g = ramp[hitGlyphs.get(c) ?? 0];
+    if (!g) return;
+    // The brightening dress paints at THIS LAYER'S OWN ink strength. The hit
+    // buffer is composited over the tinted base at globalAlpha 1, so painting
+    // at 255 overrides the per-layer `ink` that sets the scene's depth — and
+    // the layer it flattered most was the one that could least afford it: the
+    // far mountains are laid in at 0.24 precisely so they read as distance,
+    // and a patch of full-strength marks on them came back as bright white
+    // chunks floating behind the scene. Matching the layer instead keeps
+    // every patch inside its own plane in the box; the mark climbing its
+    // alphabet is what makes it visible, and on a distant range that is
+    // correctly a whisper. The accent dress is exempt: it is one layer, and
+    // being unmissable is its whole job.
+    const ink = accent ? hitFgRgb : baseRgb;
+    const alpha = accent ? 255 : Math.round(255 * Math.min(1, opacity * LIT_ALPHA_GAIN));
+    stampInto(g, Math.round(cellX[c]), Math.round(cellY[c]), hitImage, ink[0], ink[1], ink[2], alpha);
+  }
+
+  function clearHit(c: number) {
+    if (!hitImage) return;
+    const px = hitImage.data;
+    const t = hitTile(c);
+    for (let y = t.y0; y <= t.y1; y++) {
+      const rowOff = y * ow;
+      for (let x = t.x0; x <= t.x1; x++) px[(rowOff + x) * 4 + 3] = 0;
+    }
+  }
+
+  /** Lays the patch around the cursor. Two things keep it from being a
+   * spotlight: only cells the artwork actually inked can flash, so the patch
+   * is clipped to the silhouette and never spills onto bare stage; and every
+   * cell tests against its OWN jittered radius, so the rim dissolves cell by
+   * cell instead of describing a circle. */
+  function layHits(now: number) {
+    if (!hitImage || pointerX < 0 || !cellCount || !ramp.length) return false;
+    const hx = pointerX / pixel;
+    const hy = pointerY / pixel;
+    const r = patchRadius * pitch;
+    const levels = ramp.length;
+    let touched = false;
+    for (let c = 0; c < cellCount; c++) {
+      if (cellTone[c] <= cutoff) continue;
+      if (!patchAmount(c, hx, hy, r)) continue;
+      const j = cellJitter(c);
+      // Re-rolled on every pass, so the marks inside the colour keep
+      // changing for as long as the cursor is moving. The hold is jittered
+      // too, so the patch frays as it decays rather than lifting all at once.
+      hitGlyphs.set(c, rollHitGlyph(c, levels));
+      hits.set(c, now + holdMs * (Math.abs(j) > 0.5 ? 1 : 0.5));
+      paintHit(c);
+      touched = true;
+    }
+    return touched;
+  }
+
+  function hitFrame(now: number) {
+    hitRaf = 0;
+    let changed = false;
+    for (const [c, until] of hits) {
+      if (now >= until) {
+        hits.delete(c);
+        hitGlyphs.delete(c);
+        clearHit(c);
+        changed = true;
+      }
+    }
+    if (hitPending) {
+      hitPending = false;
+      if (layHits(now)) changed = true;
+    }
+    if (changed) present();
+    // Keep ticking while anything is still holding, so a cursor that stops
+    // (or leaves) still gets its patch expired instead of frozen on screen.
+    if (hits.size || hitPending) hitRaf = requestAnimationFrame(hitFrame);
+  }
+
+  function scheduleHitFrame() {
+    if (!hitRaf) hitRaf = requestAnimationFrame(hitFrame);
   }
 
   function render() {
@@ -624,8 +1010,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     image.data.fill(0);
     const maxR = pitch * weight * 0.5;
     const levels = ramp.length;
-    const h = hoverArgs();
-    for (let c = 0; c < cellCount; c++) paintCell(c, h.hx, h.hy, h.hr2, maxR, levels);
+    for (let c = 0; c < cellCount; c++) paintCell(c, maxR, levels);
     present();
   }
 
@@ -648,6 +1033,15 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     ctx.fillRect(0, 0, viewW, viewH);
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+    // The flash goes on last and at full strength, over the ink rather than
+    // through the tint — it already carries its own two colours, and
+    // thinning it by the layer's ink alpha would sand the hit back into the
+    // field it is meant to punch a hole in.
+    if (hitImage && hitCtx && hits.size) {
+      hitCtx.putImageData(hitImage, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(hitBuf, 0, 0, ow, oh, 0, 0, viewW, viewH);
+    }
   }
 
   function setImage(next: CanvasImageSource) {
@@ -667,36 +1061,37 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     attributeFilter: ['data-theme'],
   });
 
-  /** Pointer repaints are coalesced to one per frame — mousemove fires far
-   * faster than the display refreshes. */
-  function scheduleHover() {
-    if (hoverRaf) return;
-    hoverRaf = requestAnimationFrame(() => {
-      hoverRaf = 0;
-      render();
-    });
-  }
-  function onMove(e: MouseEvent) {
-    // offsetX/Y, NOT clientX minus the bounding rect. Every hero layer is
-    // laid out oversized and scaled back down by the stage's perspective
-    // transform, so the bounding rect is the PROJECTED box (the brain: 347px
-    // on screen) while everything else in here — clientWidth, the buffer,
-    // the grain — is in the element's own LAYOUT space (731px). Subtracting
-    // the rect hands back projected pixels, and dividing those by a layout
-    // width put the hover at less than half the distance from the corner it
-    // should have been. offsetX is already in the target's own untransformed
-    // coordinates, which is the space the rest of this renderer speaks.
-    pointerX = e.offsetX;
-    pointerY = e.offsetY;
-    scheduleHover();
-  }
   function onLeave() {
+    if (pointerX < 0) return;
     pointerX = -1;
     pointerY = -1;
-    scheduleHover();
+    // Nothing to clear by hand — held marks expire on their own tick, so the
+    // patch frays out behind the cursor instead of snapping off.
+    scheduleHitFrame();
   }
-  canvas.addEventListener('mousemove', onMove);
-  canvas.addEventListener('mouseleave', onLeave);
+
+  /* Window-routed rather than bound to the canvas: these layers overlap as
+   * rectangles and the browser can only deliver a move to one of them. The
+   * coordinates arrive in this element's own layout space, which is what
+   * offsetX used to give us. See lib/pointer.ts. */
+  const unwatchPointer = watchPointer(canvas, {
+    move(x, y) {
+      // Claim the cursor only where this layer has something to say. Without
+      // it a wide, mostly-empty backdrop panel answers for every layer
+      // behind it.
+      if (!inkedNear(x / pixel, y / pixel, patchRadius * pitch)) {
+        onLeave();
+        return;
+      }
+      pointerX = x;
+      pointerY = y;
+      // No base repaint: the patch lives in its own buffer, so a move only
+      // has to redraw the patch and re-composite.
+      hitPending = true;
+      scheduleHitFrame();
+    },
+    leave: onLeave,
+  });
 
   /* ---- churn ----------------------------------------------------------
    * The module used to say flatly that it does not animate, on the grounds
@@ -728,7 +1123,6 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     const maxR = pitch * weight * 0.5;
     const levels = ramp.length;
     const reach = cellReach(maxR);
-    const h = hoverArgs();
     let moved = 0;
     for (let k = 0; k < n; k++) {
       const c = (Math.random() * cellCount) | 0;
@@ -742,7 +1136,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
          — the buffer fill and the re-stamp are proportional to the LAYER,
          where this is proportional to what actually changed. */
       clearCell(c, reach);
-      paintCell(c, h.hx, h.hy, h.hr2, maxR, levels);
+      paintCell(c, maxR, levels);
       moved++;
     }
     if (moved) present();
@@ -753,11 +1147,10 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     setImage,
     refresh,
     destroy() {
-      if (hoverRaf) cancelAnimationFrame(hoverRaf);
+      if (hitRaf) cancelAnimationFrame(hitRaf);
       if (churnRaf) cancelAnimationFrame(churnRaf);
       themeObserver.disconnect();
-      canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('mouseleave', onLeave);
+      unwatchPointer();
     },
   };
 }

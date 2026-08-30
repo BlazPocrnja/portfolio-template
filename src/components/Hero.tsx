@@ -126,6 +126,7 @@ interface SceneLayer {
   asciiLight?: string; // alternate `ascii` source swapped in under the light theme
   ink?: number; // per-layer screen ink strength (see HeroAsciiArt's `ink`)
   render?: 'ascii' | 'lines' | 'dots' | 'cross' | 'dither'; // which renderer draws `ascii` — symbol mosaic (default), engraving line screen, halftone dot screen, stitched glyph screen, or the art as-authored with a hover glitch
+  glitch?: boolean; // 'cross' layers only: dresses this layer's cursor patch in the accent instead of merely brightening it (see HeroAsciiArt's `glitch`)
   maskLight?: string; // alternate mask swapped in under the light theme
   toneLight?: string; // fill for the light-theme variant
   idle?: 'float' | 'float-b' | 'float-c' | 'hands'; // idle-animation role
@@ -146,7 +147,7 @@ const BASE_LAYERS: SceneLayer[] = [
      on a 1-bit dot pattern shows up instantly as moire. Drawn as itself
      rather than re-screened: the Photoshop dither already carries the
      texture, and its contrast beats anything derived from a photo. */
-  { id: 'brain', z: -890, w: 26, ar: 460 / 689, y: -11, ascii: '/hero/brain.png', render: 'cross', idle: 'float' },
+  { id: 'brain', z: -890, w: 26, ar: 460 / 689, y: -11, ascii: '/hero/brain.png', render: 'cross', glitch: true, idle: 'float' },
   /* far mountains: the twin-peak/valley motif from beside the candles, used
      whole as one formation directly behind the brain. Width matches the
      frieze (w:96, x:0) so both share the same left/right edges — reads as
@@ -693,7 +694,7 @@ export default function Hero() {
                     {l.kind === 'floor' && <div className="hl-floor" />}
                     {l.ascii && (
                       <div className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}`}>
-                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} churn={churnForDepth(l.z)} />
+                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} churn={churnForDepth(l.z)} glitch={l.glitch} />
                       </div>
                     )}
                     {l.mask && l.kind !== 'spark' && (
