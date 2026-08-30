@@ -187,7 +187,11 @@ interface SceneLayer {
 
 const BASE_LAYERS: SceneLayer[] = [
   { id: 'interior', z: -1040, w: 99, ar: 1.58, kind: 'interior' },
-  { id: 'halo', z: -905, w: 46, ar: 1, y: -10, op: 0.9, kind: 'halo' },
+  /* Wider than the glow it draws (see .hl-halo): the core is the same size
+     it always was, and the extra width is room for the tail to run out in.
+     A falloff that has to finish inside a tight box is a falloff with an
+     edge. */
+  { id: 'halo', z: -905, w: 64, ar: 1, y: -10, op: 0.9, kind: 'halo' },
   /* The hand-dithered engraving, at the geometry it was authored for — `ar`
      is the file's own 460x689 and MUST track it or the stipple shears, which
      on a 1-bit dot pattern shows up instantly as moire. Drawn as itself
@@ -1058,7 +1062,52 @@ export default function Hero() {
           animation: hl-flicker 5.2s ease-in-out infinite;
         }
         .hl-halo {
-          background: radial-gradient(circle, color-mix(in srgb, var(--accent) 42%, transparent), transparent 68%);
+          /* Two stacked washes, and neither of them a linear ramp.
+             The disc came from the falloff being straight: alpha dropping
+             at a constant rate arrives at zero all at once, all the way
+             round, and the eye finds that terminus as an edge — Mach
+             banding sharpens it further, so a 3% rim still reads as the
+             rim of something. Light does not do that. It drops fast near
+             the source and then trails for a long way, so these stops
+             follow a gaussian: half the peak by a third of the radius,
+             under a tenth by two thirds, and a tail that is still
+             technically alive at the boundary. There is no radius at which
+             it ends, which is the whole point.
+             Fourteen stops rather than a handful. Between any two stops the
+             browser interpolates STRAIGHT, so a sparse ladder is a chain of
+             linear ramps meeting at angles, and every one of those corners
+             draws its own faint ring. Sampling the curve finely enough that
+             the kinks fall below a perceptible step is what keeps it read-
+             ing as light instead of as contours.
+             Peak stays at the 42% it always was: the brief here was softer
+             edges, not a brighter lamp.
+             The second wash is broad, faint and deliberately off-centre.
+             Perfect radial symmetry is the other half of what reads as a
+             stamped disc; pooling the light a little to one side is what a
+             glow in a real box does. */
+          background:
+            radial-gradient(ellipse 48% 50% at 50% 47%,
+              color-mix(in srgb, var(--accent) 42.0%, transparent) 0%,
+              color-mix(in srgb, var(--accent) 40.7%, transparent) 8%,
+              color-mix(in srgb, var(--accent) 37.1%, transparent) 15%,
+              color-mix(in srgb, var(--accent) 31.7%, transparent) 23%,
+              color-mix(in srgb, var(--accent) 25.5%, transparent) 31%,
+              color-mix(in srgb, var(--accent) 19.2%, transparent) 38%,
+              color-mix(in srgb, var(--accent) 13.6%, transparent) 46%,
+              color-mix(in srgb, var(--accent) 9.1%, transparent) 54%,
+              color-mix(in srgb, var(--accent) 5.7%, transparent) 62%,
+              color-mix(in srgb, var(--accent) 3.3%, transparent) 69%,
+              color-mix(in srgb, var(--accent) 1.8%, transparent) 77%,
+              color-mix(in srgb, var(--accent) 1.0%, transparent) 85%,
+              color-mix(in srgb, var(--accent) 0.5%, transparent) 92%,
+              transparent 100%),
+            radial-gradient(ellipse 66% 46% at 43% 60%,
+              color-mix(in srgb, var(--accent) 5.0%, transparent) 0%,
+              color-mix(in srgb, var(--accent) 3.2%, transparent) 30%,
+              color-mix(in srgb, var(--accent) 1.5%, transparent) 55%,
+              color-mix(in srgb, var(--accent) 0.6%, transparent) 75%,
+              color-mix(in srgb, var(--accent) 0.2%, transparent) 90%,
+              transparent 100%);
           animation: hl-flicker 4.1s ease-in-out -1.7s infinite;
         }
         .hl-floor {
