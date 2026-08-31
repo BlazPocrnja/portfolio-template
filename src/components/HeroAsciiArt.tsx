@@ -118,6 +118,9 @@ interface Props {
   tone?: string;
   /** `tone` under the light theme. Falls back to `tone` when unset. */
   toneLight?: string;
+  /** 'dither' only: how deep into the silhouette the plate frays into loose
+   * marks, in the source file's own px. See lib/dither.ts. */
+  fray?: number;
   /** Alternate mask used under the light theme. The creatures ship both a
    * `material` negative (bright figure, for the dark stage) and an `ink`
    * positive (the original black engraving, for paper) — the screens read
@@ -140,7 +143,7 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, tone, toneLight, churn, glitch }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, tone, toneLight, churn, glitch, fray }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /* The renderers already re-read their COLOUR on a theme flip; swapping the
@@ -176,7 +179,7 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
           : variant === 'cross'
             ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn, accent: glitch, patchRadius: hoverRadius })
             : variant === 'dither'
-              ? createDither(canvas)
+              ? createDither(canvas, { fray, churn: reducedMotion ? 0 : churn })
               : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
 
     // Cols is solved from the box's ACTUAL ON-SCREEN width (getBoundingClientRect,
@@ -269,7 +272,7 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
       renderer.destroy();
       window.clearTimeout(resizeTimer);
     };
-  }, [source, seed, hoverRadius, variant, churn, glitch]);
+  }, [source, seed, hoverRadius, variant, churn, glitch, fray]);
 
   return (
     <div ref={wrapRef} className="hero-ascii-art-wrap">

@@ -167,6 +167,7 @@ interface SceneLayer {
   dolly?: number; // share of the camera's travel this layer receives, 1 = full. Below 1 holds it back in the distance
   fade?: number; // % of the layer's width dissolved at each side, so its cut edges never resolve
   render?: 'ascii' | 'lines' | 'dots' | 'cross' | 'dither'; // which renderer draws `ascii` — symbol mosaic (default), engraving line screen, halftone dot screen, stitched glyph screen, or the art as-authored with a hover glitch
+  fray?: number; // 'dither' layers: ink density (0..1) below which the plate comes apart into marks
   glitch?: boolean; // 'cross' layers only: dresses this layer's cursor patch in the accent instead of merely brightening it (see HeroAsciiArt's `glitch`)
   maskLight?: string; // alternate mask swapped in under the light theme
   toneLight?: string; // fill for the light-theme variant
@@ -202,7 +203,11 @@ const BASE_LAYERS: SceneLayer[] = [
      and glitched ONLY under the cursor. The creatures gave their screens up
      for a plain mask; this one keeps the hover because the glitch lives in
      the renderer, not in the screen it replaced. */
-  { id: 'brain', z: -890, w: 26, ar: 460 / 689, y: -11, ascii: '/hero/brain.png', render: 'dither', idle: 'float' },
+  /* Frays like the hands, at the same authored strength — what makes it
+     subtle here is the DEPTH, not a smaller number. It sits at the back of
+     the box, so frayGain hands it about a third of the hands' intensity at
+     rest, and winds up past theirs as the dolly brings it to the camera. */
+  { id: 'brain', z: -890, w: 26, ar: 460 / 689, y: -11, ascii: '/hero/brain.png', render: 'dither', fray: 0.12, idle: 'float' },
   /* far mountains: the twin-peak/valley motif from beside the candles, used
      whole as one formation directly behind the brain. Width matches the
      frieze (w:96, x:0) so both share the same left/right edges — reads as
@@ -276,8 +281,17 @@ const BASE_LAYERS: SceneLayer[] = [
      top of it. Nothing here is a screen, so nothing is lost by the swap;
      the line-screen masks are these same files, and `render: 'lines'`
      brings that treatment back. */
-  { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, ascii: '/hero/devil.png', asciiLight: '/hero/devil-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', idle: 'float-b' },
-  { id: 'cockatrice', z: -490, w: 19, ar: 720 / 661, x: 19, y: 11, ascii: '/hero/cockatrice.png', asciiLight: '/hero/cockatrice-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', idle: 'float-c' },
+  /* Both fray at the same authored 0.12 as the brain and the hands, and land
+     between them without being told to: the devil stands at z -250 and gets
+     0.72 of the strength, the cockatrice at -490 gets 0.51, against the
+     hands' 1.0 and the brain's 0.34. Depth alone stages the whole cast.
+     These two are the only frayed plates that are not a stipple — they are
+     tonal engravings, and their two theme variants are inverses of one
+     another, so the marks gather in somewhat different places on paper than
+     they do on the dark stage. Both read as an aura around the figure, which
+     is what matters. */
+  { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, ascii: '/hero/devil.png', asciiLight: '/hero/devil-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', fray: 0.12, idle: 'float-b' },
+  { id: 'cockatrice', z: -490, w: 19, ar: 720 / 661, x: 19, y: 11, ascii: '/hero/cockatrice.png', asciiLight: '/hero/cockatrice-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', fray: 0.12, idle: 'float-c' },
   /* hands: one shared near-camera plane — first-person hands entering from
      the wings, at the framing the dithered exports were authored for. `ar`
      is the files' own 375x500 and MUST track it; the earlier photo cutouts
@@ -285,8 +299,23 @@ const BASE_LAYERS: SceneLayer[] = [
      shaped and much larger on screen. The box is sized so the exports' hard
      canvas edges sit off-stage, with only the fingers and palm reaching in.
      `ink` carries the weight the old flat `tone: fg 88%` used to. */
-  { id: 'hand-left', z: -70, w: 44, ar: 375 / 500, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', render: 'cross', ink: 0.85, idle: 'hands' },
-  { id: 'hand-right', z: -70, w: 44, ar: 375 / 500, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', render: 'cross', ink: 0.85, idle: 'hands' },
+  /* Drawn as authored, like the brain — these came out of Photoshop as
+     hand-made 1-bit stipple, and re-screening a stipple through a stitch
+     lattice samples one invented grain through another — but FRAYED, which
+     the brain is not. The plate holds in the middle and comes apart along
+     its own outline into loose marks that carry a few px past it.
+     These are the only layers where the plate is smaller than its footprint
+     (375px of art across roughly 665px of screen), so the buffer is blown
+     up about 1.8x with smoothing off. On a whole picture that would read as
+     a low-res asset; on one that is visibly disintegrating at the edge it
+     is the point — the marks land as chunky pixels because they ARE pixels.
+     0.12 is a COVERAGE level, not a distance: below that local ink density
+     the plate starts dropping dots and marks scatter through it. On these
+     plates that is the falling-off tone at the edge of the light, which on
+     a photographic dither is the only edge there is — the shadow side of a
+     hand has no outline, it just thins to nothing. */
+  { id: 'hand-left', z: -70, w: 44, ar: 375 / 500, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', render: 'dither', ink: 0.85, fray: 0.12, idle: 'hands' },
+  { id: 'hand-right', z: -70, w: 44, ar: 375 / 500, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', render: 'dither', ink: 0.85, fray: 0.12, idle: 'hands' },
 ];
 
 /* Depth-scattered particles: ink sparkles + glowing lights (some accent,
@@ -441,6 +470,30 @@ function churnForDepth(z: number) {
  * you SEE at p=0; this converts them to the actual (larger, deeper) values. */
 function proj(z: number) {
   return (PERSP - z) / PERSP;
+}
+
+/* How hard the fray runs, as a function of how near the camera a layer
+ * currently is. Nearness here is the layer's PROJECTION — how big it reads —
+ * because that is the same information the eye has: a plate at the back of
+ * the box should only whisper, and the same plate arriving at the camera
+ * should come apart properly.
+ * Normalised so the hands at rest sit at exactly 1.0. They are the layer the
+ * effect was tuned on, so 1.0 means "what was authored", and every other
+ * layer states its own strength relative to that.
+ * Raw projection runs 0.42 at the brain's resting depth to 13x at the clamp,
+ * so it is shaped — but the two directions are shaped SEPARATELY, because
+ * they are two different questions. How hard distance suppresses the effect
+ * is one decision; how fast coming at the camera intensifies it is another,
+ * and tuning either through a single exponent drags the other along with it.
+ * Both branches meet at 1.0, so the curve is continuous where it matters. */
+const FRAY_REF = 1 / proj(-70); // the hands' resting projection
+const FRAY_FAR = 1.25; // bites the far end: higher = quieter in the distance
+const FRAY_NEAR = 0.65; // eases the near end: lower = slower to intensify
+const FRAY_MAX = 2.4;
+function frayGain(z: number) {
+  const raw = 1 / proj(z) / FRAY_REF;
+  if (raw < 1) return Math.pow(raw, FRAY_FAR);
+  return Math.min(FRAY_MAX, Math.pow(raw, FRAY_NEAR));
 }
 
 function layerTransform(l: SceneLayer, z: number) {
@@ -637,6 +690,9 @@ export default function Hero() {
         if (zNow > KILL_START) op *= Math.max(0, 1 - (zNow - KILL_START) / KILL_RANGE);
         el.style.transform = layerTransform(l, zNow);
         el.style.opacity = op.toFixed(3);
+        // One number, written where the renderer can read it without asking
+        // the browser to measure anything.
+        if (l.fray) el.dataset.near = frayGain(zNow).toFixed(3);
       });
 
       /* ---- floor flow --------------------------------------------------
@@ -646,12 +702,16 @@ export default function Hero() {
        * so a dz of camera travel is dz / sin(tilt) of ground covered.
        * Positive moves the tiles toward the viewer, which is what the
        * ground does when you advance over it.
-       * background-position, not a transform on the tiles: the pattern is a
-       * gradient, so this is a paint of the visible region rather than a
-       * new composited layer the size of the whole plane — and the plane is
-       * several times the width of the stage. */
+       * A phase offset inside the pattern, not a transform on the tiles: the
+       * pattern is a gradient, so this is a paint of the visible region
+       * rather than a new composited layer the size of the whole plane — and
+       * the plane is several times the width of the stage. It rides in a
+       * custom property rather than background-position because the checker
+       * is drawn by full-box repeating gradients (see .hl-floor::after); a
+       * positioned image would have to be a tile again, which is the thing
+       * that frayed. */
       if (floorEl) {
-        floorEl.style.backgroundPosition = `0 ${(dz / Math.sin(FLOOR_TILT)).toFixed(1)}px`;
+        floorEl.style.setProperty('--flow', `${(dz / Math.sin(FLOOR_TILT)).toFixed(1)}px`);
       }
 
       const fadeP = Math.min(1, p / CONTENT_FADE_END);
@@ -774,6 +834,10 @@ export default function Hero() {
                   /* Both read back by the drift effect, which rewrites
                      left/top and needs this layer's own projection factor to
                      convert a stage-space position into one. */
+                  /* Read by the dither renderer every tick — see frayGain.
+                     Seeded here at the layer's RESTING depth so the static
+                     scene (reduced motion, first paint) is already right. */
+                  data-near={l.fray ? frayGain(l.z).toFixed(3) : undefined}
                   data-band={l.kind === 'spark' ? l.band : undefined}
                   data-proj={l.kind === 'spark' ? f.toFixed(4) : undefined}
                 >
@@ -825,7 +889,7 @@ export default function Hero() {
                         className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}${l.fade ? ' hl-fade' : ''}`}
                         style={l.fade ? ({ '--hl-fade': `${l.fade}%` } as CSSProperties) : undefined}
                       >
-                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} tone={l.tone} toneLight={l.toneLight} churn={churnForDepth(l.z)} glitch={l.glitch} />
+                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} tone={l.tone} toneLight={l.toneLight} churn={churnForDepth(l.z)} glitch={l.glitch} fray={l.fray} />
                       </div>
                     )}
                     {l.mask && l.kind !== 'spark' && (
@@ -1111,19 +1175,21 @@ export default function Hero() {
           animation: hl-flicker 4.1s ease-in-out -1.7s infinite;
         }
         .hl-floor {
-          /* both checker cells are OPAQUE (resolved against --bg, not
+          /* The pale half of the checker, and the ground the dark half is
+             painted onto. Both cells are OPAQUE (resolved against --bg, not
              transparent) — either half being see-through let the mountains
              bleed through every other tile. The floor's own mask below still
              fades the whole plane to nothing at its far edges, which is the
              only place scenery should show through. */
-          background: repeating-conic-gradient(color-mix(in srgb, var(--fg) 30%, var(--bg)) 0% 25%, var(--bg) 0% 50%);
-          /* Wider than they are deep, ON PURPOSE. A cell that is square on
-             the plane does not project square: close to the camera the
-             perspective stretches depth hard (which is the whole fisheye
-             effect), so a square tile came out 1.65x taller than wide along
-             the bottom of the screen and stopped reading as a checker at
-             all. The old lens hid this — its bottom row measured 0.97, near
-             enough square by luck of where the plane sat.
+          background: var(--bg);
+          /* One 2x2-cell tile of the pattern. Wider than they are deep, ON
+             PURPOSE. A cell that is square on the plane does not project
+             square: close to the camera the perspective stretches depth hard
+             (which is the whole fisheye effect), so a square tile came out
+             1.65x taller than wide along the bottom of the screen and
+             stopped reading as a checker at all. The old lens hid this — its
+             bottom row measured 0.97, near enough square by luck of where
+             the plane sat.
              Squashing the cell's DEPTH to 74% puts the square-looking row
              back down in the near field where the eye actually reads the
              pattern, and lets it foreshorten away above that, which is what
@@ -1131,7 +1197,12 @@ export default function Hero() {
              cells are not square in world space; nothing in the scene can
              show that, and a checker that reads as a checker beats one that
              is provably square and reads as tally marks. */
-          background-size: clamp(96px, 12.75vw, 177px) clamp(71px, 9.44vw, 131px);
+          --tile-w: clamp(96px, 12.75vw, 177px);
+          --tile-d: clamp(71px, 9.44vw, 131px);
+          /* How far the ground has streamed toward the camera. Carried as a
+             phase offset inside the pattern rather than as a background-
+             position, so the pattern is never a positioned tile. */
+          --flow: 0px;
           /* Distance, not a vignette. A radial mask fades the plane toward
              its own centre, which draws a semicircle of ground sitting in
              the middle of the screen — the shape reads as a spotlight on a
@@ -1152,6 +1223,39 @@ export default function Hero() {
              camera plane, where the projection is meaningless. */
           -webkit-mask-image: linear-gradient(to top, transparent 0%, #000 9%, #000 58%, transparent 88%);
           mask-image: linear-gradient(to top, transparent 0%, #000 9%, #000 58%, transparent 88%);
+        }
+        /* The dark half of the checker.
+           NOT a repeating-conic-gradient tile, which is what this was and
+           what was fraying it. A gradient painted at a background-size
+           smaller than its box is tiled by rasterising ONE tile and stamping
+           it — and the tile pitch here is a vw-derived fraction of a pixel,
+           on top of a device pixel ratio that is itself fractional on most
+           Windows displays. The stamped tile therefore lands a hair off its
+           own pitch, and the rounding shows up as one- and two-pixel slivers
+           of the wrong tone hanging off the sides of the cells, worst at the
+           widths where the fraction sits nearest a half pixel. The 3D tilt
+           then magnifies them: the plane is painted flat and texture-mapped,
+           so a stray pixel near the bottom of the plane is stretched into
+           several.
+           Two axis-aligned repeating gradients XOR'd together draw the same
+           checker with no tile at all — each is one full-box image whose
+           repeat happens inside the gradient, evaluated per pixel, so there
+           is no pitch to round and no seam to land on. Columns from one,
+           rows from the other; exclude keeps the squares where exactly one
+           of the two is lit. */
+        .hl-floor::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: color-mix(in srgb, var(--fg) 30%, var(--bg));
+          -webkit-mask-image:
+            repeating-linear-gradient(to right, #000 0 calc(var(--tile-w) / 2), transparent 0 var(--tile-w)),
+            repeating-linear-gradient(to bottom, #000 var(--flow) calc(var(--flow) + var(--tile-d) / 2), transparent 0 calc(var(--flow) + var(--tile-d)));
+          mask-image:
+            repeating-linear-gradient(to right, #000 0 calc(var(--tile-w) / 2), transparent 0 var(--tile-w)),
+            repeating-linear-gradient(to bottom, #000 var(--flow) calc(var(--flow) + var(--tile-d) / 2), transparent 0 calc(var(--flow) + var(--tile-d)));
+          -webkit-mask-composite: xor;
+          mask-composite: exclude;
         }
         /* Screen-edge proscenium rails: full viewport height, alternating
            right triangles like the laser-cut border of the physical box.
