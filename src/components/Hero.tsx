@@ -121,7 +121,7 @@ const RAIL = `url("data:image/svg+xml,${encodeURIComponent(
  * to the same width would just smear into a grey smudge.
  */
 function pixelGlyph(size: number, cells: readonly (readonly [number, number])[]): string {
-  const rects = cells.map(([x, y]) => `<rect x="${x}" y="${y}" width="1" height="1"/>`).join('');
+  const rects = cells.map(([x, y]) => `<rect x="${x}" y="${y}" width="1" height="1"/>`).join('\n          ');
   return `url("data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges">${rects}</svg>`
   )}")`;
@@ -189,6 +189,14 @@ interface SceneLayer {
    * the ground does not fly, so its resting depth stops describing where it
    * belongs in the order the moment the dolly starts. See the floor. */
   order?: number;
+  /** Ties this layer's horizontal place to the hand on that side, so it
+   *  keeps its PROPORTION of the centre-to-hand span as the frame widens.
+   *  The hand itself is the case where that proportion is 1. See handSpan(). */
+  track?: 'left' | 'right';
+  /** How far the DRAWN art reaches from this layer's centre toward `edge`,
+   *  as a fraction of the layer's width, after its rotation. Measured off the
+   *  source PNG's alpha; re-measure if the art is recut. */
+  inkReach?: number;
   kind?: 'interior' | 'halo' | 'floor' | 'spark';
   spark?: 'star' | 'light'; // particle flavor: ink sparkle vs glowing light
   lightc?: string; // glow color family for 'light' sparks
@@ -309,8 +317,8 @@ const BASE_LAYERS: SceneLayer[] = [
      another, so the marks gather in somewhat different places on paper than
      they do on the dark stage. Both read as an aura around the figure, which
      is what matters. */
-  { id: 'devil', z: -250, w: 16.5, ar: 555 / 1024, x: -24, y: 8, ascii: '/hero/devil.png', asciiLight: '/hero/devil-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', fray: 0.12, idle: 'float-b' },
-  { id: 'cockatrice', z: -490, w: 19, ar: 720 / 661, x: 19, y: 11, ascii: '/hero/cockatrice.png', asciiLight: '/hero/cockatrice-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', fray: 0.12, idle: 'float-c' },
+  { id: 'devil', z: -250, track: 'left', w: 16.5, ar: 555 / 1024, x: -24, y: 8, ascii: '/hero/devil.png', asciiLight: '/hero/devil-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', fray: 0.12, idle: 'float-b' },
+  { id: 'cockatrice', z: -490, track: 'right', w: 19, ar: 720 / 661, x: 19, y: 11, ascii: '/hero/cockatrice.png', asciiLight: '/hero/cockatrice-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', fray: 0.12, idle: 'float-c' },
   /* hands: one shared near-camera plane — first-person hands entering from
      the wings, at the framing the dithered exports were authored for. `ar`
      is the files' own 375x500 and MUST track it; the earlier photo cutouts
@@ -333,8 +341,8 @@ const BASE_LAYERS: SceneLayer[] = [
      plates that is the falling-off tone at the edge of the light, which on
      a photographic dither is the only edge there is — the shadow side of a
      hand has no outline, it just thins to nothing. */
-  { id: 'hand-left', z: -70, w: 44, ar: 375 / 500, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', render: 'dither', ink: 0.85, fray: 0.12, idle: 'hands' },
-  { id: 'hand-right', z: -70, w: 44, ar: 375 / 500, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', render: 'dither', ink: 0.85, fray: 0.12, idle: 'hands' },
+  { id: 'hand-left', z: -70, track: 'left', inkReach: 0.4811, w: 44, ar: 375 / 500, x: -50, y: 20, rot: -6, ascii: '/hero/hand-left.png', render: 'dither', ink: 0.85, fray: 0.12, idle: 'hands' },
+  { id: 'hand-right', z: -70, track: 'right', inkReach: 0.4682, w: 44, ar: 375 / 500, x: 50, y: 10, rot: 4, ascii: '/hero/hand-right.png', render: 'dither', ink: 0.85, fray: 0.12, idle: 'hands' },
 ];
 
 /* Depth-scattered particles: ink sparkles + glowing lights (some accent,
@@ -523,6 +531,79 @@ function layerTransform(l: SceneLayer, z: number) {
   return l.rot ? `${base} rotate(${l.rot}deg)` : base;
 }
 
+/* --stageW is min(94vw, 140vh), so past an aspect of 140/94 = 1.489:1 the
+ * stage is pinned by HEIGHT and stops growing with the window. Everything
+ * positioned against it therefore drifts toward the middle as a viewport gets
+ * wider — fine for scenery that lives in the box, wrong for the hands, which
+ * are first-person hands reaching in from off-frame. Once they detach from
+ * the edge you are looking at the export's crop line: at 32:9 the left hand's
+ * image starts 913px in from the edge, hanging in open space.
+ *
+ * edgeHold is how far past the RAIL'S INNER EDGE such a layer may sit, as a
+ * fraction of --stageW, and it is derived from the ARTWORK rather than from
+ * an aspect ratio. That distinction is the whole of it. Calibrating on "16:9"
+ * looks principled and is not: a maximised browser on a 1920x1080 monitor is
+ * a 1920x945 VIEWPORT, aspect 2.03, because the chrome eats the height. Every
+ * ordinary 16:9 display is already past 16:9 by this measure — 1.90 at 4K,
+ * 1.96 at 1440p, 2.03 at 1080p — so a clamp pinned there fires on machines it
+ * was never meant to touch and drags the hands 28-57px off their mark.
+ *
+ * The real question is not "is this window wide" but "has the hand stopped
+ * reaching its rail", and that has an exact answer. `ink` is how far the
+ * drawn hand extends from the layer's centre, as a fraction of the layer's
+ * width, after the layer's rotation — measured off the PNG's alpha channel,
+ * so it describes the art and nothing else. Put the layer any further in
+ * than rail + ink and daylight opens between the hand and the rail; keep it
+ * at or outside that and the two always meet. EDGE_TUCK holds a little more
+ * overlap in reserve so the idle sway and the fray cannot open a hairline.
+ *
+ * Below that point `min` keeps the stage's answer and nothing moves, which
+ * now includes every ordinary window at every ordinary aspect. RE-MEASURE
+ * `ink` if the hand art is ever recut. */
+const EDGE_TUCK = 0.02; // of the layer's width, kept under the rail as margin
+const HAND_X = 50; // |x| of the hands: the far end of the span everything shares
+
+/* THE SPAN. Widen the window past the point where --stageW stops growing and
+ * the hands walk outward to stay on their rails, while everything authored
+ * against the stage stays put. The creatures between them would be left
+ * stranded around the brain with a widening band of empty stage either side.
+ *
+ * So they are not authored against the stage at all. Every tracking layer
+ * holds its FRACTION of the distance from the stage centre to its hand —
+ * the devil at 48% of the way out, the cockatrice at 38%, each hand at 100% —
+ * and when the hand moves they all move with it, in proportion. The fraction
+ * is |x| / HAND_X, so it comes from the composition rather than from a table:
+ * move a creature in the authored scene and its share of the span moves too.
+ *
+ * `left` is a LAYOUT position, and CSS perspective draws it at
+ * `origin + (left - origin) * k`, k = P/(P - z). Both --hand-off-* are
+ * SCREEN offsets from the stage centre, so each layer multiplies by its own
+ * f = 1/k to say where it must be laid out to land there:
+ *
+ *     left = 50% + (f * fraction) * handOffset
+ *
+ * At 16:9 and narrower the offset is the stage's own -/+ 0.5 * --stageW, so
+ * this collapses to exactly the position each layer was authored at, to the
+ * fourth decimal. Nothing moves until the hands do. */
+function spanCoeff(l: SceneLayer) {
+  return (proj(l.z) * Math.abs(l.x ?? 0)) / HAND_X;
+}
+
+/* The two tokens the whole span hangs off: where each hand's CENTRE sits,
+ * in screen px from the stage centre. The stage's answer until the hand's art
+ * would stop reaching its rail (see inkReach), the rail's after that. */
+function handOffsets() {
+  const hands = BASE_LAYERS.filter((l) => l.track && l.inkReach);
+  const term = (l: SceneLayer) => {
+    const reach = (((l.inkReach ?? 0.5) - EDGE_TUCK) * (l.w ?? 0)) / 100;
+    const stage = `calc(var(--stageW) * ${((l.track === 'left' ? -HAND_X : HAND_X) / 100).toFixed(4)})`;
+    return l.track === 'left'
+      ? `min(${stage}, calc(var(--rail-w) + var(--stageW) * ${reach.toFixed(4)} - 50%))`
+      : `max(${stage}, calc(50% - var(--rail-w) - var(--stageW) * ${reach.toFixed(4)}))`;
+  };
+  return hands.map((l) => `--hand-off-${l.track}: ${term(l)};`).join('\n          ');
+}
+
 const CONTENT_FADE_END = 0.12; // hero tagline/name/nav are gone by this fraction
 
 export default function Hero() {
@@ -708,6 +789,8 @@ export default function Hero() {
 
     const layers = layerRefs.current.filter((el): el is HTMLDivElement => el !== null);
     const wash = washRef.current;
+    let contentVis = false;
+    let washVis = false;
 
     /* ---- camera aim ----------------------------------------------------
      * The dolly only changes each layer's z. CSS perspective then scales a
@@ -739,6 +822,10 @@ export default function Hero() {
       aimOffY = aimEl.offsetTop - scene.clientHeight / 2;
     };
     measureAim();
+
+    /* Last value written per layer, so the loop below can tell a real change
+       from a re-statement of what is already there. */
+    const state = layers.map(() => ({ tf: '', op: '', vis: '' }));
 
     const update = (p: number) => {
       // exponent > 1 makes the camera accelerate through the scroll — the
@@ -779,8 +866,40 @@ export default function Hero() {
         const zNow = Math.min(l.z + dz * (l.dolly ?? 1), PERSP - EYE_MARGIN);
         let op = l.op ?? 1;
         if (zNow > KILL_START) op *= Math.max(0, 1 - (zNow - KILL_START) / KILL_RANGE);
-        el.style.transform = layerTransform(l, zNow);
-        el.style.opacity = op.toFixed(3);
+
+        /* A layer the kill fade has finished with is invisible, but opacity 0
+           does not retire it: it keeps its compositor layer, and it keeps
+           being re-rastered as the dolly magnifies it — which is the worst
+           moment to be paying for it, because a prop that has flown past the
+           camera is being drawn at many times the size it was authored at.
+           Three quarters of the scene reaches 0 before the scroll ends (the
+           hands by 65%, the near sparks by 75%, the cockatrice by 85%), and
+           the sparks alone are 64 of those. `visibility: hidden` is the one
+           way to say "stop" that the compositor acts on, and it is exactly
+           as visible as opacity 0 — which is to say, not at all. */
+        const gone = op <= 0.001;
+        const vis = gone ? 'hidden' : '';
+        if (state[i].vis !== vis) {
+          state[i].vis = vis;
+          el.style.visibility = vis;
+        }
+        if (gone) return;
+
+        /* Both writes are compared before they are made. The setter itself is
+           cheap; what is not is that a write marks the element dirty whether
+           or not the value moved, and most of these do not move on most
+           frames — a layer's opacity is constant until the kill fade reaches
+           it, and the ground never transforms at all. */
+        const tf = layerTransform(l, zNow);
+        if (state[i].tf !== tf) {
+          state[i].tf = tf;
+          el.style.transform = tf;
+        }
+        const opStr = op.toFixed(3);
+        if (state[i].op !== opStr) {
+          state[i].op = opStr;
+          el.style.opacity = opStr;
+        }
         // One number, written where the renderer can read it without asking
         // the browser to measure anything.
         if (l.fray) el.dataset.near = frayGain(zNow).toFixed(3);
@@ -798,16 +917,35 @@ export default function Hero() {
        * rebuild and nothing to wrap. */
       floorRef.current?.setFlow(dz / Math.sin(FLOOR_TILT));
 
+      /* The hero copy is gone by 12% of the scroll and stays gone, but it is
+         a BLURRED layer — a filter the compositor has to keep a surface for.
+         Retiring it for the other 88% is the single biggest of these. */
       const fadeP = Math.min(1, p / CONTENT_FADE_END);
-      content.style.opacity = (1 - fadeP).toFixed(3);
-      content.style.filter = fadeP > 0 ? `blur(${(fadeP * 6).toFixed(1)}px)` : 'none';
+      const contentGone = fadeP >= 1;
+      if (contentVis !== contentGone) {
+        contentVis = contentGone;
+        content.style.visibility = contentGone ? 'hidden' : '';
+      }
+      if (!contentGone) {
+        content.style.opacity = (1 - fadeP).toFixed(3);
+        content.style.filter = fadeP > 0 ? `blur(${(fadeP * 6).toFixed(1)}px)` : 'none';
+      }
 
       // Finale: the light swallows the screen over the last stretch, so the
       // sticky release hands the next section a bright frame to rise over.
       if (wash) {
         const wp = Math.min(1, Math.max(0, (p - 0.84) / 0.14));
-        const eased = wp * wp * (3 - 2 * wp);
-        wash.style.opacity = eased.toFixed(3);
+        // Nothing at all until the last sixth of the scroll, so it spends
+        // most of its life hidden rather than merely transparent.
+        const washGone = wp <= 0;
+        if (washVis !== washGone) {
+          washVis = washGone;
+          wash.style.visibility = washGone ? 'hidden' : '';
+        }
+        if (!washGone) {
+          const eased = wp * wp * (3 - 2 * wp);
+          wash.style.opacity = eased.toFixed(3);
+        }
       }
     };
 
@@ -951,7 +1089,17 @@ export default function Hero() {
                       : {
                           width: `calc(var(--stageW) * ${((l.w! * f) / 100).toFixed(4)})`,
                           aspectRatio: `${l.ar}`,
-                          left: `calc(50% + var(--stageW) * ${(((l.x ?? 0) * f) / 100).toFixed(4)})`,
+                          /* An edge layer must NOT set `left` here. An inline
+                             declaration outranks every stylesheet rule, so
+                             leaving one meant the media query below could
+                             never win and the hands sat where the stage put
+                             them — mid-screen on an ultrawide. It publishes
+                             its two terms as custom properties instead and
+                             lets the cascade choose. Everything else is
+                             placed against the stage and nothing else. */
+                          ...(l.track
+                            ? ({ '--hx-k': `${spanCoeff(l).toFixed(4)}` } as CSSProperties)
+                            : { left: `calc(50% + var(--stageW) * ${(((l.x ?? 0) * f) / 100).toFixed(4)})` }),
                           top: `calc(50% + var(--stageH) * ${(((l.y ?? 0) * f) / 100).toFixed(4)})`,
                           transform: layerTransform(l, l.z),
                           opacity: l.op ?? 1,
@@ -967,6 +1115,7 @@ export default function Hero() {
                      dolly never moves, and the only one that has to opt out
                      of the blanket promotion below. */
                   data-kind={l.kind === 'floor' ? 'floor' : undefined}
+                  data-track={l.track}
                   data-near={l.fray ? frayGain(l.z).toFixed(3) : undefined}
                   data-band={l.kind === 'spark' ? l.band : undefined}
                   data-proj={l.kind === 'spark' ? f.toFixed(4) : undefined}
@@ -1109,6 +1258,13 @@ export default function Hero() {
           inset: 0;
           z-index: 0;
           background: var(--bg);
+          /* One number for the proscenium's width, because two things depend
+             on it: the rails themselves, and where an edge-pinned layer has
+             to start so the rail does not swallow it (see edgeHold). They
+             would drift apart as two literals. box-sizing is border-box
+             globally, so this INCLUDES the rail's 2px rule — which makes it
+             exactly the x of the rail's inner edge. */
+          --rail-w: clamp(44px, 5.2vw, 92px);
         }
         .hero-scene {
           position: absolute;
@@ -1116,6 +1272,22 @@ export default function Hero() {
           perspective: ${PERSP}px;
           --stageW: min(94vw, 140vh);
           --stageH: calc(var(--stageW) / 1.6);
+          /* Where each hand's centre sits, in SCREEN px from the stage
+             centre. Purely the stage's own answer here; the rails only enter
+             the picture once the frame is wider than the stage can fill. */
+          --hand-off-left: calc(var(--stageW) * -0.5);
+          --hand-off-right: calc(var(--stageW) * 0.5);
+        }
+        /* Below this the two agree anyway — checked at 1920x1080, 1440x900,
+           2560x1440 and 3840x2160, all identical to the fourth decimal — but
+           "unchanged at 16:9" is the requirement, and a requirement that
+           holds because two expressions happen to compare a certain way is
+           one edit away from silently not holding. Gated, it is structural:
+           narrower than this, the rails are not in the arithmetic at all. */
+        @media (min-aspect-ratio: 16 / 9) {
+          .hero-scene {
+            ${handOffsets()}
+          }
         }
         @media (max-width: 640px) {
           .hero-scene {
@@ -1126,6 +1298,15 @@ export default function Hero() {
           position: absolute;
           will-change: transform, opacity;
           pointer-events: none;
+        }
+        /* One rule for every tracking layer; the coefficient is what makes
+           the hands land on their rails and the creatures land proportionally
+           short of them. See spanCoeff(). */
+        .hl[data-track='left'] {
+          left: calc(50% + var(--hx-k) * var(--hand-off-left));
+        }
+        .hl[data-track='right'] {
+          left: calc(50% + var(--hx-k) * var(--hand-off-right));
         }
         /* The floor opts OUT, because dolly: 0 means this element's
            transform and opacity are the same on every frame of the scroll —
@@ -1351,7 +1532,7 @@ export default function Hero() {
           position: absolute;
           top: 0;
           bottom: 0;
-          width: clamp(44px, 5.2vw, 92px);
+          width: var(--rail-w);
           background: var(--bg);
           /* the strip's rule — flips to the correct side on the mirrored
              right rail along with the rest of the element */
