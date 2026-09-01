@@ -41,6 +41,9 @@ export interface PointerWatchHandlers {
 
 export function watchPointer(el: HTMLElement, handlers: PointerWatchHandlers) {
   let inside = false;
+  let raf = 0;
+  let lastX = 0;
+  let lastY = 0;
 
   function exit() {
     if (!inside) return;
@@ -48,20 +51,40 @@ export function watchPointer(el: HTMLElement, handlers: PointerWatchHandlers) {
     handlers.leave();
   }
 
-  function onMove(e: PointerEvent) {
+  /* The rect read is deferred to a frame rather than done per event, and
+     that is a real cost, not tidiness. getBoundingClientRect forces layout,
+     the rect genuinely moves (the dolly is rewriting every layer's transform
+     while you scroll) so it cannot be cached, and EIGHT canvases watch the
+     window independently. A high-polling-rate mouse delivers well over a
+     dozen pointermove events per frame, so a circular sweep across the scene
+     was asking for a hundred-plus forced layouts per frame — interleaved
+     with the hero's own per-frame perspective-origin write, which dirties
+     the very layout being measured. That read/write ping-pong is what turns
+     an already-tight compositor budget into dropped tiles.
+     Coalescing pins it at one read per canvas per frame. The cost is that a
+     move is acted on up to one frame late, which is where every renderer
+     was going to draw it anyway. */
+  function sample() {
+    raf = 0;
     const rect = el.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       exit();
       return;
     }
-    const nx = (e.clientX - rect.left) / rect.width;
-    const ny = (e.clientY - rect.top) / rect.height;
+    const nx = (lastX - rect.left) / rect.width;
+    const ny = (lastY - rect.top) / rect.height;
     if (nx < 0 || nx > 1 || ny < 0 || ny > 1) {
       exit();
       return;
     }
     inside = true;
     handlers.move(nx * el.clientWidth, ny * el.clientHeight);
+  }
+
+  function onMove(e: PointerEvent) {
+    lastX = e.clientX;
+    lastY = e.clientY;
+    if (!raf) raf = requestAnimationFrame(sample);
   }
 
   /** relatedTarget null means the pointer left the document itself — moving
@@ -76,5 +99,6 @@ export function watchPointer(el: HTMLElement, handlers: PointerWatchHandlers) {
   return () => {
     window.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerout', onOut);
+    if (raf) cancelAnimationFrame(raf);
   };
 }

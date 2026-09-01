@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { gsap, ScrollTrigger, ensureGsap } from '@/lib/gsap';
 import HoverLink from './HoverLink';
 import HeroAsciiArt from './HeroAsciiArt';
+import { createFloor } from '../lib/floor';
 
 const SOCIALS = [
   { label: 'GitHub', href: 'https://github.com/BlazPocrnja' },
@@ -59,6 +60,17 @@ const TRAVEL = 1190;
  * transform AND by the flow that streams the surface under the camera, which
  * has to agree with it exactly or the ground slides at the wrong rate. */
 const FLOOR_TILT_DEG = 82;
+/* The plane the ground USED to be cut from. Nothing is this size any more —
+   lib/floor.ts draws the ground per pixel — but the distance haze was tuned
+   as percentages of this height, so it stays the unit those stops are read
+   in and the fade comes out exactly where it always did. */
+const FLOOR_PLANE_W_PCT = 340;
+const FLOOR_PLANE_AR = 3.2;
+/* Checker pitch on the plane, in layout px. Was clamp() in CSS; the renderer
+   needs numbers, and this is the same curve. Wider than deep on purpose —
+   a cell that is square on the plane does not project square. */
+const floorTileW = (vw: number) => Math.min(177, Math.max(96, vw * 0.1275));
+const floorTileD = (vw: number) => Math.min(131, Math.max(71, vw * 0.0944));
 const FLOOR_TILT = (FLOOR_TILT_DEG * Math.PI) / 180;
 /* Where a layer passing the camera fades out, in z. These are NOT free
  * numbers and they do not scale with the lens by simple proportion: what
@@ -153,8 +165,8 @@ const SPARK_GLYPHS = [
 interface SceneLayer {
   id: string;
   z: number; // resting depth (negative = deeper into the box)
-  w: number; // PROJECTED width at p=0, % of stage width
-  ar: number; // aspect ratio w/h
+  w?: number; // PROJECTED width at p=0, % of stage width — the screen-space floor has no box, so it has none
+  ar?: number; // aspect ratio w/h
   x?: number; // projected offset from stage center, % of stage width
   y?: number; // projected offset from stage center, % of stage height
   rot?: number;
@@ -214,7 +226,8 @@ const BASE_LAYERS: SceneLayer[] = [
      one continuous painted backdrop panel, diorama-style, rather than two
      independently-floating pieces. Sits at the deepest depth in the box
      (right against the interior); the floor's now-opaque checker tiles
-     (see .hl-floor) hide whatever part of it would fall below the horizon. */
+     (see lib/floor.ts) hide whatever part of it would fall below the
+     horizon. */
   /* `ink` does the recessing the old flat `tone: fg 22%` used to. A screen
      inks at its own strength, and at full strength a panel this size at the
      back of the box stops being a distant range and becomes a lit wall
@@ -270,7 +283,13 @@ const BASE_LAYERS: SceneLayer[] = [
      -900 sits between the halo and the brain: the sky, the glow and the
      range still go behind the ground, and every prop that flies now draws
      over it — which is what standing ON a floor looks like. */
-  { id: 'floor', z: -410, order: -900, w: 340, ar: 3.2, y: 30, kind: 'floor', dolly: 0 },
+  /* `w`/`ar` are gone with the element they sized. What remains is the
+     PLANE: its depth, its tilt (FLOOR_TILT_DEG) and the y that places its
+     centre — the three numbers lib/floor.ts inverts per pixel. It is still
+     ordered and still faded like a layer, it just is not a picture any more.
+     `dolly: 0` still means the ground holds still while the camera streams
+     over it; see the floor-flow block in the scroll effect. */
+  { id: 'floor', z: -410, order: -900, y: 30, kind: 'floor', dolly: 0 },
   /* the creatures run UNSCREENED, like the brain: the engraving as authored,
      drawn by the 'dither' renderer rather than re-screened, so the only
      thing that ever touches the art is the cursor. Art per theme — material
@@ -497,8 +516,10 @@ function frayGain(z: number) {
 }
 
 function layerTransform(l: SceneLayer, z: number) {
+  /* The floor is drawn in screen space by its own renderer, which does the
+     projection itself — a CSS transform here would project it twice. */
+  if (l.kind === 'floor') return '';
   const base = `translate3d(-50%, -50%, ${z.toFixed(1)}px)`;
-  if (l.kind === 'floor') return `${base} rotateX(${FLOOR_TILT_DEG}deg)`;
   return l.rot ? `${base} rotate(${l.rot}deg)` : base;
 }
 
@@ -511,6 +532,27 @@ export default function Hero() {
   const washRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<HTMLDivElement>(null);
   const layerRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const floorCanvasRef = useRef<HTMLCanvasElement>(null);
+  const stageProbeRef = useRef<HTMLDivElement>(null);
+  const floorRef = useRef<ReturnType<typeof createFloor> | null>(null);
+  /* Stage geometry in px, shared by the two effects that move the ground:
+     resize owns w/h/cx/cy, the pointer parallax owns lookX/lookY. */
+  const stageRef = useRef({ w: 0, h: 0, cx: 0, cy: 0, lookX: 0, lookY: 0 });
+
+  /* The ground's camera is the scene's OWN camera, read back out of CSS:
+     perspective-origin is a percentage of .hero-scene's box, and that is the
+     point the whole projection pivots around. Feeding the same number to the
+     shader is what keeps the horizon glued to the scenery when the parallax
+     moves — the ground and the plates stay one space. */
+  const applyFloorCamera = useCallback(() => {
+    const m = stageRef.current;
+    floorRef.current?.setCamera({
+      ox: (m.w * (50 + m.lookX)) / 100,
+      oy: (m.h * (50 + m.lookY)) / 100,
+      cx: m.cx,
+      cy: m.cy,
+    });
+  }, []);
   const [tallHero, setTallHero] = useState(true);
 
   useEffect(() => {
@@ -604,6 +646,59 @@ export default function Hero() {
     return () => scene.removeEventListener('animationiteration', onIteration);
   }, []);
 
+  /* The ground, and the stage numbers it is driven by. Kept apart from the
+     scroll effect because the floor exists whether or not the hero is tall
+     enough to dolly — and because it has to survive that effect's teardown
+     on a viewport flip. */
+  useEffect(() => {
+    const canvas = floorCanvasRef.current;
+    const probe = stageProbeRef.current;
+    const scene = sceneRef.current;
+    if (!canvas || !probe || !scene) return;
+
+    const l = LAYERS.find((x) => x.kind === 'floor');
+    if (!l) return;
+    const f = proj(l.z);
+
+    const floor = createFloor(canvas, {
+      perspective: PERSP,
+      z: l.z,
+      tiltDeg: FLOOR_TILT_DEG,
+      tileW: floorTileW(window.innerWidth),
+      tileD: floorTileD(window.innerWidth),
+      planeH: 1,
+    });
+    floorRef.current = floor;
+
+    const measure = () => {
+      const stageW = probe.clientWidth;
+      const stageH = probe.clientHeight;
+      const m = stageRef.current;
+      m.w = scene.clientWidth;
+      m.h = scene.clientHeight;
+      // Exactly where the old element's centre sat: the same `top` calc,
+      // with the -50% self-centring translate already accounted for.
+      m.cx = m.w / 2;
+      m.cy = m.h / 2 + (stageH * (l.y ?? 0) * f) / 100;
+      floor.setPlane({
+        tileW: floorTileW(window.innerWidth),
+        tileD: floorTileD(window.innerWidth),
+        planeH: (stageW * FLOOR_PLANE_W_PCT * f) / 100 / FLOOR_PLANE_AR,
+      });
+      floor.resize();
+      applyFloorCamera();
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(scene);
+    return () => {
+      ro.disconnect();
+      floor.destroy();
+      floorRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     if (!tallHero) return;
     ensureGsap();
@@ -612,10 +707,6 @@ export default function Hero() {
     if (!wrap || !content) return;
 
     const layers = layerRefs.current.filter((el): el is HTMLDivElement => el !== null);
-    /* The checkered surface itself, inside its layer's box — the box holds
-       still while this streams across it. */
-    const floorEl = wrap.querySelector<HTMLElement>('.hl-floor');
-
     const wash = washRef.current;
 
     /* ---- camera aim ----------------------------------------------------
@@ -702,23 +793,10 @@ export default function Hero() {
        * so a dz of camera travel is dz / sin(tilt) of ground covered.
        * Positive moves the tiles toward the viewer, which is what the
        * ground does when you advance over it.
-       * Written as a raw distance and left unwrapped here — the CSS wraps it
-       * into one tile depth, because the tile size is a clamp() this side
-       * cannot resolve without asking the browser to measure. It rides in a
-       * custom property rather than background-position because the checker
-       * is drawn by full-box repeating gradients (see .hl-floor::after); a
-       * positioned image would have to be a tile again, which is the thing
-       * that frayed.
-       * What the property drives is a translate of the pattern layer, NOT
-       * the gradient's stop positions. Baked into the stops it was a fresh
-       * mask image every frame, and the surface it masks is the largest
-       * thing in the scene by a wide margin (~26MP at 1080p), so every
-       * scroll frame asked for a full repaint of it — which is what made the
-       * checker flicker. As a transform on a static mask the compositor just
-       * moves what it already has. */
-      if (floorEl) {
-        floorEl.style.setProperty('--flow', `${(dz / Math.sin(FLOOR_TILT)).toFixed(1)}px`);
-      }
+       * Handed to the ground renderer as a plain distance: it is a term in
+       * the shader's phase, so there is no pattern to re-tile, no mask to
+       * rebuild and nothing to wrap. */
+      floorRef.current?.setFlow(dz / Math.sin(FLOOR_TILT));
 
       const fadeP = Math.min(1, p / CONTENT_FADE_END);
       content.style.opacity = (1 - fadeP).toFixed(3);
@@ -768,7 +846,10 @@ export default function Hero() {
       entrance
         .from(q('.hero-rail'), { opacity: 0, duration: 0.7, ...ir }, 0)
         .from(prop('interior'), { opacity: 0, duration: 1.0, ...ir }, 0.1)
-        .from(prop('floor'), { opacity: 0, yPercent: 18, duration: 0.9, ...ir }, 0.35)
+        /* 18% used to be 18% of a 2873px plane seen almost edge-on; on a
+           full-bleed canvas the same number is 18% of the viewport. 5 lands
+           the ground in from roughly where it used to. */
+        .from(prop('floor'), { opacity: 0, yPercent: 5, duration: 0.9, ...ir }, 0.35)
         .from(prop('clouds'), { yPercent: -180, duration: 1.0, ...ir }, 0.5)
         .from(prop('halo'), { opacity: 0, duration: 1.0, ...ir }, 0.8)
         .from(prop('brain'), { yPercent: 55, opacity: 0, duration: 1.0, ease: 'power2.out', ...ir }, 0.8)
@@ -790,10 +871,35 @@ export default function Hero() {
       lookTarget.x = (e.clientX / window.innerWidth - 0.5) * 7;
       lookTarget.y = (e.clientY / window.innerHeight - 0.5) * 5;
     };
+    /* An exponential ease never arrives, so this wrote a new perspective-
+       origin on EVERY ticker frame for as long as the page was open —
+       around three seconds of visibly-different values after each pointer
+       move, then forever after that at the fourth decimal. That is not a
+       free write: perspective-origin belongs to the container, so changing
+       it re-projects every layer in the box — and it is the pivot the
+       ground's own projection is built on, so it redraws too.
+       Snapping once the remaining distance is below what the formatted
+       string can express, and skipping the write when the string is
+       unchanged, ends the churn the moment the pointer settles. */
+    let lookOrigin = '';
     const lookTick = () => {
-      look.x += (lookTarget.x - look.x) * 0.05;
-      look.y += (lookTarget.y - look.y) * 0.05;
-      if (scene) scene.style.perspectiveOrigin = `${(50 + look.x).toFixed(3)}% ${(50 + look.y).toFixed(3)}%`;
+      const dx = lookTarget.x - look.x;
+      const dy = lookTarget.y - look.y;
+      if (Math.abs(dx) < 0.0005 && Math.abs(dy) < 0.0005) {
+        look.x = lookTarget.x;
+        look.y = lookTarget.y;
+      } else {
+        look.x += dx * 0.05;
+        look.y += dy * 0.05;
+      }
+      const next = `${(50 + look.x).toFixed(3)}% ${(50 + look.y).toFixed(3)}%`;
+      if (next === lookOrigin) return;
+      lookOrigin = next;
+      if (scene) scene.style.perspectiveOrigin = next;
+      // The ground pivots on the same origin, so it has to hear about it.
+      stageRef.current.lookX = look.x;
+      stageRef.current.lookY = look.y;
+      applyFloorCamera();
     };
     if (canHover && scene) {
       window.addEventListener('pointermove', onPointerMove);
@@ -813,13 +919,18 @@ export default function Hero() {
         gsap.ticker.remove(lookTick);
       }
     };
-  }, [tallHero]);
+  }, [tallHero, applyFloorCamera]);
 
   return (
     <div ref={scrollWrapRef} className={`hero-scroll-wrap${tallHero ? '' : ' is-compact'}`}>
       <section className="hero">
         <div className="hero-canvas" aria-hidden="true">
           <div ref={sceneRef} className="hero-scene">
+            {/* --stageW/--stageH are min() expressions, which getComputedStyle
+                hands back unresolved, and the floor renderer needs them as
+                numbers. A zero-cost element that IS those two lengths is the
+                only way to read them that cannot drift from the CSS. */}
+            <div ref={stageProbeRef} className="hero-stage-probe" />
             {LAYERS.map((l, i) => {
               const f = proj(l.z);
               return (
@@ -828,21 +939,34 @@ export default function Hero() {
                   ref={(el) => {
                     layerRefs.current[i] = el;
                   }}
-                  className="hl"
-                  style={{
-                    width: `calc(var(--stageW) * ${((l.w * f) / 100).toFixed(4)})`,
-                    aspectRatio: `${l.ar}`,
-                    left: `calc(50% + var(--stageW) * ${(((l.x ?? 0) * f) / 100).toFixed(4)})`,
-                    top: `calc(50% + var(--stageH) * ${(((l.y ?? 0) * f) / 100).toFixed(4)})`,
-                    transform: layerTransform(l, l.z),
-                    opacity: l.op ?? 1,
-                  }}
+                  className={`hl${l.kind === 'floor' ? ' hl-ground' : ''}`}
+                  /* The ground covers the frame instead of occupying a box
+                     in it: it is drawn per pixel, so its extent is the
+                     viewport, and it needs no width, no aspect and no
+                     transform of its own. Every other layer is still a
+                     plate hung at a depth. */
+                  style={
+                    l.kind === 'floor'
+                      ? { opacity: l.op ?? 1 }
+                      : {
+                          width: `calc(var(--stageW) * ${((l.w! * f) / 100).toFixed(4)})`,
+                          aspectRatio: `${l.ar}`,
+                          left: `calc(50% + var(--stageW) * ${(((l.x ?? 0) * f) / 100).toFixed(4)})`,
+                          top: `calc(50% + var(--stageH) * ${(((l.y ?? 0) * f) / 100).toFixed(4)})`,
+                          transform: layerTransform(l, l.z),
+                          opacity: l.op ?? 1,
+                        }
+                  }
                   /* Both read back by the drift effect, which rewrites
                      left/top and needs this layer's own projection factor to
                      convert a stage-space position into one. */
                   /* Read by the dither renderer every tick — see frayGain.
                      Seeded here at the layer's RESTING depth so the static
                      scene (reduced motion, first paint) is already right. */
+                  /* Only the floor needs naming: it is the one layer the
+                     dolly never moves, and the only one that has to opt out
+                     of the blanket promotion below. */
+                  data-kind={l.kind === 'floor' ? 'floor' : undefined}
                   data-near={l.fray ? frayGain(l.z).toFixed(3) : undefined}
                   data-band={l.kind === 'spark' ? l.band : undefined}
                   data-proj={l.kind === 'spark' ? f.toFixed(4) : undefined}
@@ -889,7 +1013,7 @@ export default function Hero() {
                       </div>
                     )}
                     {l.kind === 'halo' && <div className="hl-halo" />}
-                    {l.kind === 'floor' && <div className="hl-floor" />}
+                    {l.kind === 'floor' && <canvas ref={floorCanvasRef} className="hl-floor" aria-hidden="true" />}
                     {l.ascii && (
                       <div
                         className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}${l.fade ? ' hl-fade' : ''}`}
@@ -1003,6 +1127,16 @@ export default function Hero() {
           will-change: transform, opacity;
           pointer-events: none;
         }
+        /* The floor opts OUT, because dolly: 0 means this element's
+           transform and opacity are the same on every frame of the scroll —
+           there is nothing here for the compositor to hold a texture for.
+           It carries a canvas that paints itself, so there is nothing here
+           for the compositor to cache either. (This used to be the page's
+           largest surface by an order of magnitude — a 9200x2900 CSS px
+           tilted plane, ~240MB of texture at dpr 1.5. See lib/floor.ts.) */
+        .hl[data-kind='floor'] {
+          will-change: auto;
+        }
         /* Three transform tiers that never fight: .hl belongs to the scroll
            dolly (JS), .hl-prop to the one-shot prop-setup entrance (GSAP),
            .hl-art to the CSS idle loops. */
@@ -1015,7 +1149,6 @@ export default function Hero() {
         .hl-light,
         .hl-interior,
         .hl-halo,
-        .hl-floor,
         .hl-frame {
           position: absolute;
           inset: 0;
@@ -1180,129 +1313,35 @@ export default function Hero() {
               transparent 100%);
           animation: hl-flicker 4.1s ease-in-out -1.7s infinite;
         }
-        .hl-floor {
-          /* The pale half of the checker, and the ground the dark half is
-             painted onto. Both cells are OPAQUE (resolved against --bg, not
-             transparent) — either half being see-through let the mountains
-             bleed through every other tile. The floor's own mask below still
-             fades the whole plane to nothing at its far edges, which is the
-             only place scenery should show through. */
-          background: var(--bg);
-          /* One 2x2-cell tile of the pattern. Wider than they are deep, ON
-             PURPOSE. A cell that is square on the plane does not project
-             square: close to the camera the perspective stretches depth hard
-             (which is the whole fisheye effect), so a square tile came out
-             1.65x taller than wide along the bottom of the screen and
-             stopped reading as a checker at all. The old lens hid this — its
-             bottom row measured 0.97, near enough square by luck of where
-             the plane sat.
-             Squashing the cell's DEPTH to 74% puts the square-looking row
-             back down in the near field where the eye actually reads the
-             pattern, and lets it foreshorten away above that, which is what
-             a checkered floor is supposed to do. The trade is that the
-             cells are not square in world space; nothing in the scene can
-             show that, and a checker that reads as a checker beats one that
-             is provably square and reads as tally marks. */
-          --tile-w: clamp(96px, 12.75vw, 177px);
-          --tile-d: clamp(71px, 9.44vw, 131px);
-          /* How far the ground has streamed toward the camera. Written by
-             the scroll effect every frame, and the ONLY thing about this
-             plane that changes during the dolly — so what it drives has to
-             be compositor-cheap. It is spent on a translate of the pattern
-             layer (see .hl-floor::after), wrapped into one tile depth, not
-             on the gradient's stop positions: stops baked from --flow made
-             the mask a different image on every frame, which invalidates
-             the whole surface. That surface is w: 340 inflated by the
-             layer's own projection — around 9200x2900 CSS px on a 1080p
-             screen, ~26 megapixels — so repainting it per frame is what put
-             the checker in and out of the compositor's reach mid-scroll.
-             That is the flicker; it was never depth sorting (.hero-scene is
-             transform-style: flat, so the layers are painted in DOM order
-             and cannot z-fight). */
-          --flow: 0px;
-          /* The pattern layer hangs one tile above the box so the flow
-             translate never uncovers the far edge; this clips the overhang.
-             Without it the overhang escapes the mask's own painting area,
-             where the mask gradient repeats and paints ground above the
-             horizon. */
-          overflow: hidden;
-          /* Distance, not a vignette. A radial mask fades the plane toward
-             its own centre, which draws a semicircle of ground sitting in
-             the middle of the screen — the shape reads as a spotlight on a
-             floor rather than as a floor. This fades along ONE axis only:
-             full strength across the entire width, thinning as the surface
-             recedes, gone before its far edge is ever reached. The eye is
-             given a ground that runs off both sides of the frame and hazes
-             out with distance, which is what a horizon looks like.
-             It is a haze, not a true vanishing line, and it cannot be
-             anything else here: the plane would have to be around 43,000px
-             wide for its far edge to actually reach the angle's vanishing
-             line, and a CSS transform cannot carry an element that size.
-             What it can do is end the plane where the eye reads fog.
-             The far end is gone by 88%: the last rows before the edge are
-             compressed past the point where a hard-edged checker samples
-             cleanly, and that sliver is where a moire would crawl during
-             the dolly. The near end fades too — those rows sit past the
-             camera plane, where the projection is meaningless. */
-          -webkit-mask-image: linear-gradient(to top, transparent 0%, #000 9%, #000 58%, transparent 88%);
-          mask-image: linear-gradient(to top, transparent 0%, #000 9%, #000 58%, transparent 88%);
+        /* The ground. A canvas across the frame, drawn per pixel by
+           lib/floor.ts — see that file for why it is not a tilted div any
+           more. The two colours are handed to the shader from here so the
+           theme tokens stay the single source of truth: the color
+           property is the pale half of the checker, --floor-ink the dark. */
+        .hl-ground {
+          inset: 0;
         }
-        /* The dark half of the checker.
-           NOT a repeating-conic-gradient tile, which is what this was and
-           what was fraying it. A gradient painted at a background-size
-           smaller than its box is tiled by rasterising ONE tile and stamping
-           it — and the tile pitch here is a vw-derived fraction of a pixel,
-           on top of a device pixel ratio that is itself fractional on most
-           Windows displays. The stamped tile therefore lands a hair off its
-           own pitch, and the rounding shows up as one- and two-pixel slivers
-           of the wrong tone hanging off the sides of the cells, worst at the
-           widths where the fraction sits nearest a half pixel. The 3D tilt
-           then magnifies them: the plane is painted flat and texture-mapped,
-           so a stray pixel near the bottom of the plane is stretched into
-           several.
-           Two axis-aligned repeating gradients XOR'd together draw the same
-           checker with no tile at all — each is one full-box image whose
-           repeat happens inside the gradient, evaluated per pixel, so there
-           is no pitch to round and no seam to land on. Columns from one,
-           rows from the other; exclude keeps the squares where exactly one
-           of the two is lit. */
-        .hl-floor::after {
-          content: '';
+        .hl-floor {
           position: absolute;
-          /* One tile depth of overhang past the FAR end, because the flow
-             below translates this box DOWN the plane (the element's bottom
-             is the end tipped toward the viewer) by up to one tile. Without
-             the overhang that translate drags the pattern's own top edge
-             down into frame at the horizon. The near end runs correspondingly
-             long out the bottom; the parent's overflow clips both. */
-          top: calc(var(--tile-d) * -1);
-          right: 0;
-          bottom: 0;
+          inset: 0;
+          display: block;
+          width: 100%;
+          height: 100%;
+          color: var(--bg);
+          --floor-ink: color-mix(in srgb, var(--fg) 30%, var(--bg));
+        }
+        /* Zero-cost reader for --stageW/--stageH. They are min() expressions,
+           which getComputedStyle does not resolve, so the floor renderer
+           measures an element that IS them rather than duplicating the
+           formula in JS where it could drift. */
+        .hero-stage-probe {
+          position: absolute;
+          top: 0;
           left: 0;
-          background: color-mix(in srgb, var(--fg) 30%, var(--bg));
-          /* Both gradients are now STATIC — no --flow in either stop list —
-             so this mask is one image for the whole scroll and the surface
-             is rasterised once instead of once per frame. */
-          -webkit-mask-image:
-            repeating-linear-gradient(to right, #000 0 calc(var(--tile-w) / 2), transparent 0 var(--tile-w)),
-            repeating-linear-gradient(to bottom, #000 0 calc(var(--tile-d) / 2), transparent 0 var(--tile-d));
-          mask-image:
-            repeating-linear-gradient(to right, #000 0 calc(var(--tile-w) / 2), transparent 0 var(--tile-w)),
-            repeating-linear-gradient(to bottom, #000 0 calc(var(--tile-d) / 2), transparent 0 var(--tile-d));
-          -webkit-mask-composite: xor;
-          mask-composite: exclude;
-          /* The stream itself. Wrapped into a single tile depth: the phase
-             of a repeating pattern is periodic, so a translate of flow and
-             one of (flow mod tile-d) are the same picture, and the wrapped
-             one stays inside the overhang above and inside the range where
-             a transform is exact. --flow tops out near 1200px (TRAVEL /
-             sin(FLOOR_TILT)) against a tile depth of at most 131px, so the
-             wrap is doing real work every frame past the first tile.
-             translate3d + will-change keep it on the compositor, so a scroll
-             frame moves an already-painted surface rather than repainting
-             26 megapixels of gradient. */
-          transform: translate3d(0, mod(var(--flow), var(--tile-d)), 0);
-          will-change: transform;
+          width: var(--stageW);
+          height: var(--stageH);
+          visibility: hidden;
+          pointer-events: none;
         }
         /* Screen-edge proscenium rails: full viewport height, alternating
            right triangles like the laser-cut border of the physical box.

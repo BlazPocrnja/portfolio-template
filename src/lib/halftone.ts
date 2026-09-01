@@ -292,7 +292,7 @@ const MAX_DPR = 2;
  * hands back color(srgb 0.91 0.9 0.89), i.e. 0..1 floats, and the token could
  * just as well arrive as a hex, an hsl() or a color-mix(). */
 let probeCtx: CanvasRenderingContext2D | null | undefined;
-function resolveColor(css: string, fallback: [number, number, number]): [number, number, number] {
+export function resolveColor(css: string, fallback: [number, number, number]): [number, number, number] {
   if (probeCtx === undefined) {
     const c = document.createElement('canvas');
     c.width = 1;
