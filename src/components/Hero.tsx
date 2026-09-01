@@ -702,14 +702,20 @@ export default function Hero() {
        * so a dz of camera travel is dz / sin(tilt) of ground covered.
        * Positive moves the tiles toward the viewer, which is what the
        * ground does when you advance over it.
-       * A phase offset inside the pattern, not a transform on the tiles: the
-       * pattern is a gradient, so this is a paint of the visible region
-       * rather than a new composited layer the size of the whole plane — and
-       * the plane is several times the width of the stage. It rides in a
+       * Written as a raw distance and left unwrapped here — the CSS wraps it
+       * into one tile depth, because the tile size is a clamp() this side
+       * cannot resolve without asking the browser to measure. It rides in a
        * custom property rather than background-position because the checker
        * is drawn by full-box repeating gradients (see .hl-floor::after); a
        * positioned image would have to be a tile again, which is the thing
-       * that frayed. */
+       * that frayed.
+       * What the property drives is a translate of the pattern layer, NOT
+       * the gradient's stop positions. Baked into the stops it was a fresh
+       * mask image every frame, and the surface it masks is the largest
+       * thing in the scene by a wide margin (~26MP at 1080p), so every
+       * scroll frame asked for a full repaint of it — which is what made the
+       * checker flicker. As a transform on a static mask the compositor just
+       * moves what it already has. */
       if (floorEl) {
         floorEl.style.setProperty('--flow', `${(dz / Math.sin(FLOOR_TILT)).toFixed(1)}px`);
       }
@@ -1199,10 +1205,27 @@ export default function Hero() {
              is provably square and reads as tally marks. */
           --tile-w: clamp(96px, 12.75vw, 177px);
           --tile-d: clamp(71px, 9.44vw, 131px);
-          /* How far the ground has streamed toward the camera. Carried as a
-             phase offset inside the pattern rather than as a background-
-             position, so the pattern is never a positioned tile. */
+          /* How far the ground has streamed toward the camera. Written by
+             the scroll effect every frame, and the ONLY thing about this
+             plane that changes during the dolly — so what it drives has to
+             be compositor-cheap. It is spent on a translate of the pattern
+             layer (see .hl-floor::after), wrapped into one tile depth, not
+             on the gradient's stop positions: stops baked from --flow made
+             the mask a different image on every frame, which invalidates
+             the whole surface. That surface is w: 340 inflated by the
+             layer's own projection — around 9200x2900 CSS px on a 1080p
+             screen, ~26 megapixels — so repainting it per frame is what put
+             the checker in and out of the compositor's reach mid-scroll.
+             That is the flicker; it was never depth sorting (.hero-scene is
+             transform-style: flat, so the layers are painted in DOM order
+             and cannot z-fight). */
           --flow: 0px;
+          /* The pattern layer hangs one tile above the box so the flow
+             translate never uncovers the far edge; this clips the overhang.
+             Without it the overhang escapes the mask's own painting area,
+             where the mask gradient repeats and paints ground above the
+             horizon. */
+          overflow: hidden;
           /* Distance, not a vignette. A radial mask fades the plane toward
              its own centre, which draws a semicircle of ground sitting in
              the middle of the screen — the shape reads as a spotlight on a
@@ -1246,16 +1269,40 @@ export default function Hero() {
         .hl-floor::after {
           content: '';
           position: absolute;
-          inset: 0;
+          /* One tile depth of overhang past the FAR end, because the flow
+             below translates this box DOWN the plane (the element's bottom
+             is the end tipped toward the viewer) by up to one tile. Without
+             the overhang that translate drags the pattern's own top edge
+             down into frame at the horizon. The near end runs correspondingly
+             long out the bottom; the parent's overflow clips both. */
+          top: calc(var(--tile-d) * -1);
+          right: 0;
+          bottom: 0;
+          left: 0;
           background: color-mix(in srgb, var(--fg) 30%, var(--bg));
+          /* Both gradients are now STATIC — no --flow in either stop list —
+             so this mask is one image for the whole scroll and the surface
+             is rasterised once instead of once per frame. */
           -webkit-mask-image:
             repeating-linear-gradient(to right, #000 0 calc(var(--tile-w) / 2), transparent 0 var(--tile-w)),
-            repeating-linear-gradient(to bottom, #000 var(--flow) calc(var(--flow) + var(--tile-d) / 2), transparent 0 calc(var(--flow) + var(--tile-d)));
+            repeating-linear-gradient(to bottom, #000 0 calc(var(--tile-d) / 2), transparent 0 var(--tile-d));
           mask-image:
             repeating-linear-gradient(to right, #000 0 calc(var(--tile-w) / 2), transparent 0 var(--tile-w)),
-            repeating-linear-gradient(to bottom, #000 var(--flow) calc(var(--flow) + var(--tile-d) / 2), transparent 0 calc(var(--flow) + var(--tile-d)));
+            repeating-linear-gradient(to bottom, #000 0 calc(var(--tile-d) / 2), transparent 0 var(--tile-d));
           -webkit-mask-composite: xor;
           mask-composite: exclude;
+          /* The stream itself. Wrapped into a single tile depth: the phase
+             of a repeating pattern is periodic, so a translate of flow and
+             one of (flow mod tile-d) are the same picture, and the wrapped
+             one stays inside the overhang above and inside the range where
+             a transform is exact. --flow tops out near 1200px (TRAVEL /
+             sin(FLOOR_TILT)) against a tile depth of at most 131px, so the
+             wrap is doing real work every frame past the first tile.
+             translate3d + will-change keep it on the compositor, so a scroll
+             frame moves an already-painted surface rather than repainting
+             26 megapixels of gradient. */
+          transform: translate3d(0, mod(var(--flow), var(--tile-d)), 0);
+          will-change: transform;
         }
         /* Screen-edge proscenium rails: full viewport height, alternating
            right triangles like the laser-cut border of the physical box.
