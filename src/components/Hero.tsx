@@ -189,6 +189,8 @@ interface SceneLayer {
    * the ground does not fly, so its resting depth stops describing where it
    * belongs in the order the moment the dolly starts. See the floor. */
   order?: number;
+  /** This layer carries the scroll sweep. One layer only. */
+  sweep?: boolean;
   /** Ties this layer's horizontal place to the hand on that side, so it
    *  keeps its PROPORTION of the centre-to-hand span as the frame widens.
    *  The hand itself is the case where that proportion is 1. See handSpan(). */
@@ -261,7 +263,7 @@ const BASE_LAYERS: SceneLayer[] = [
      that averages hairlines into 6px cells lands them mid-ramp — at the
      shared strength the whole band greyed out and stopped holding the top
      of the scene. */
-  { id: 'clouds', z: -770, w: 96, ar: 3958 / 1005, y: -31, ascii: '/hero/clouds-ink.png', render: 'cross', ink: 0.95 },
+  { id: 'clouds', z: -770, sweep: true, w: 96, ar: 3958 / 1005, y: -31, ascii: '/hero/clouds-ink.png', render: 'cross', ink: 0.95 },
   /* `w` and `ar` move together (170/1.6 -> 340/3.2), which doubles the
      plane's WIDTH and leaves its depth untouched: the element's height in
      layout px, and therefore the z range it spans and where its near edge
@@ -604,6 +606,70 @@ function handOffsets() {
   return hands.map((l) => `--hand-off-${l.track}: ${term(l)};`).join('\n          ');
 }
 
+/* THE SCROLL SWEEP.
+ *
+ * The cloud frieze doubles as the hero's progress bar. It is the same light
+ * the cursor already makes — same marks, same climb up their own alphabet,
+ * same jittered hold — walked across the band by the scroll instead of by a
+ * pointer, so it reads as the picture responding rather than as a widget
+ * laid over it. lib/halftone.ts owns the gesture; this only says where.
+ *
+ * Where it STOPS is a fact about the drawing. clouds-ink.png is 3958px of
+ * repeating cloud frieze for its first four fifths, and then two candles:
+ * bodies as solid verticals at 90% and 95% across, flames as the bright mass
+ * above them from roughly 84% to 96%. Running the sweep to 1.0 would carry
+ * the light off the end of the art into empty margin; ending it at the first
+ * flame is both where the drawing wants it and a real terminus. Re-measure
+ * against the art if the frieze is ever recut. */
+const SWEEP_END = 0.9;
+/* Held a touch wider than the cursor's patch. The pointer's job is to pick
+ * out marks; this one has to read as a single travelling light from across
+ * the room, and a column the width of the hover disc reads as a flicker. */
+const SWEEP_BAND = 4.5;
+
+/* WHEN the sweep has to be finished, which is not the end of the scroll.
+ *
+ * The frieze does not stay in frame for the whole section. The clouds dolly
+ * at the camera and swell, and the candle end of the band leaves the right of
+ * the screen long before the scroll ends — at 62% on a maximised 1080p
+ * window. Run the light on raw progress and it only ever gets two thirds of
+ * the way to the flame before the flame is gone, which is the effect being
+ * cut off mid-sentence rather than arriving.
+ *
+ * So progress is normalised against the frieze's own visibility instead: the
+ * light reaches the flame exactly as the flame is about to go. That point
+ * cannot be a constant — it is 54.5% on a 1080p window at full height, 62%
+ * maximised, 74.8% on a 3440 ultrawide and 85.8% at 32:9, because a wider
+ * frame holds the band's far end longer.
+ *
+ * Scanned rather than solved in closed form because three different things
+ * can end it — the flame crossing the rail, the band rising out of the top,
+ * the kill fade — and whichever happens first is the answer. It runs once per
+ * resize, not per frame. */
+function sweepScrollEnd(sceneW: number, sceneH: number, stageW: number, stageH: number, railW: number) {
+  const l = LAYERS.find((x) => x.sweep);
+  if (!l) return 1;
+  const f = proj(l.z);
+  const layoutW = (stageW * (l.w ?? 0) * f) / 100;
+  const layoutH = layoutW / (l.ar ?? 1);
+  const dy = (stageH * (l.y ?? 0) * f) / 100;
+  let last = 0;
+  for (let i = 1; i <= 400; i++) {
+    const p = i / 400;
+    const pl = Math.max(0, (p - DOLLY_START) / (1 - DOLLY_START));
+    const zNow = Math.min(l.z + Math.pow(pl, 1.55) * TRAVEL * (l.dolly ?? 1), PERSP - EYE_MARGIN);
+    const k = PERSP / (PERSP - zNow);
+    let op = l.op ?? 1;
+    if (zNow > KILL_START) op *= Math.max(0, 1 - (zNow - KILL_START) / KILL_RANGE);
+    const flameX = sceneW / 2 + (SWEEP_END - 0.5) * layoutW * k;
+    const bandBottom = sceneH / 2 + dy * k + (layoutH * k) / 2;
+    if (flameX > sceneW - railW || bandBottom <= 0 || op <= 0.05) break;
+    last = p;
+  }
+  // A floor, so a freak viewport can never divide by nothing.
+  return Math.max(0.05, last);
+}
+
 const CONTENT_FADE_END = 0.12; // hero tagline/name/nav are gone by this fraction
 
 export default function Hero() {
@@ -616,6 +682,12 @@ export default function Hero() {
   const floorCanvasRef = useRef<HTMLCanvasElement>(null);
   const stageProbeRef = useRef<HTMLDivElement>(null);
   const floorRef = useRef<ReturnType<typeof createFloor> | null>(null);
+  const sweepRef = useRef<((p: number) => void) | null>(null);
+  const sweepEndRef = useRef(1);
+  // Stable, so publishing the handle never re-runs the renderer's effect.
+  const onSweep = useCallback((set: ((p: number) => void) | null) => {
+    sweepRef.current = set;
+  }, []);
   /* Stage geometry in px, shared by the two effects that move the ground:
      resize owns w/h/cx/cy, the pointer parallax owns lookX/lookY. */
   const stageRef = useRef({ w: 0, h: 0, cx: 0, cy: 0, lookX: 0, lookY: 0 });
@@ -761,6 +833,8 @@ export default function Hero() {
       // with the -50% self-centring translate already accounted for.
       m.cx = m.w / 2;
       m.cy = m.h / 2 + (stageH * (l.y ?? 0) * f) / 100;
+      const railEl = scene.parentElement?.querySelector<HTMLElement>('.hero-rail');
+      sweepEndRef.current = sweepScrollEnd(m.w, m.h, stageW, stageH, railEl?.clientWidth ?? 0);
       floor.setPlane({
         tileW: floorTileW(window.innerWidth),
         tileD: floorTileD(window.innerWidth),
@@ -916,6 +990,13 @@ export default function Hero() {
        * the shader's phase, so there is no pattern to re-tile, no mask to
        * rebuild and nothing to wrap. */
       floorRef.current?.setFlow(dz / Math.sin(FLOOR_TILT));
+
+      /* Linear in the RAW scroll fraction, not the eased dolly: the light is
+         reporting how far through the section you are, and a reading that
+         accelerated with the camera would be lying about it. Normalised
+         against how long the frieze is actually on screen, so it arrives at
+         the flame as the flame leaves — see sweepScrollEnd. */
+      sweepRef.current?.(Math.min(1, p / sweepEndRef.current) * SWEEP_END);
 
       /* The hero copy is gone by 12% of the scroll and stays gone, but it is
          a BLURRED layer — a filter the compositor has to keep a surface for.
@@ -1168,7 +1249,7 @@ export default function Hero() {
                         className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}${l.fade ? ' hl-fade' : ''}`}
                         style={l.fade ? ({ '--hl-fade': `${l.fade}%` } as CSSProperties) : undefined}
                       >
-                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} tone={l.tone} toneLight={l.toneLight} churn={churnForDepth(l.z)} glitch={l.glitch} fray={l.fray} />
+                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} tone={l.tone} toneLight={l.toneLight} churn={churnForDepth(l.z)} glitch={l.glitch} fray={l.fray} onSweep={l.sweep ? onSweep : undefined} sweepBand={l.sweep ? SWEEP_BAND : undefined} />
                       </div>
                     )}
                     {l.mask && l.kind !== 'spark' && (

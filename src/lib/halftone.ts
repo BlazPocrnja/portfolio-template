@@ -97,6 +97,10 @@ export interface DotScreenOptions {
    * per-pass ±1 of churn. Relative, not a target: raising it lifts the whole
    * patch, it does not flatten the picture's own light out of it. */
   litStep?: number;
+  /** Half-width, in CELLS, of the scroll sweep's lit column — the same
+   *  gesture as the cursor's patch asked of a column instead of a disc. In
+   *  cells for the same reason patchRadius is; see there. */
+  sweepBand?: number;
   /** How long a mark the cursor touched holds what it was given before it
    * drops back, in ms — for the accent tiles and the brightened marks
    * alike. Jittered per mark, so the patch frays out behind the cursor
@@ -343,6 +347,7 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   const gamma = options.gamma ?? 1.15;
   const opacityDefault = options.opacity ?? 0.62;
   const patchRadius = options.patchRadius ?? 3.5;
+  const sweepBand = options.sweepBand ?? patchRadius;
   // Accent dress is stitch-only: it mirrors a cell along the glyph alphabet,
   // and a scaling disc doesn't have one.
   const accent = (options.accent ?? false) && markKind === 'cross';
@@ -406,6 +411,10 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
 
   let pointerX = -1;
   let pointerY = -1;
+  /** Where the scroll sweep's front sits, 0..1 across the buffer. -1 is off,
+   *  which is what every layer but the one driving it stays at. */
+  let sweepAt = -1;
+  let sweepPending = false;
 
   /* ---- patch state ----------------------------------------------------
    * A SECOND low-res buffer, blown up over the tinted base. It carries real
@@ -896,6 +905,42 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
     return 0.55 + 0.45 * ((n * 7.13) % 1);
   }
 
+  /** THE PATCH RULE on one axis. Membership is binary and jittered against
+   * the cell's OWN half-width, exactly as the disc is, so the sweep's two
+   * edges tear the same way the cursor's rim does and the two effects read as
+   * one gesture rather than two. Distance decides whether a mark is in and
+   * nothing else — a soft ramp here would draw a bar with a gradient on it,
+   * which is a UI widget, not something happening to the picture. */
+  function sweepAmount(c: number, fx: number, r: number) {
+    const dx = cellX[c] - fx;
+    if (dx > 2 * r || dx < -2 * r) return 0;
+    const rr = r * (1 + (cellHash[c] * 2 - 1));
+    if (rr <= 0 || Math.abs(dx) > rr) return 0;
+    return 1;
+  }
+
+  /** The scroll sweep. Same marks, same climb, same jittered hold as the
+   * cursor's patch — the hold is what gives it its tail, so the light reads
+   * as travelling across the frieze rather than as a band teleporting along
+   * it. Clipped to the silhouette like the cursor is, so it lights the
+   * drawing and never the bare stage between clouds. */
+  function laySweep(now: number) {
+    if (!hitImage || sweepAt < 0 || !cellCount || !ramp.length) return false;
+    const fx = sweepAt * ow;
+    const r = sweepBand * pitch;
+    const levels = ramp.length;
+    let touched = false;
+    for (let c = 0; c < cellCount; c++) {
+      if (cellTone[c] <= cutoff) continue;
+      if (!sweepAmount(c, fx, r)) continue;
+      hitGlyphs.set(c, rollHitGlyph(c, levels));
+      hits.set(c, now + holdMs * (Math.abs(cellJitter(c)) > 0.5 ? 1 : 0.5));
+      paintHit(c);
+      touched = true;
+    }
+    return touched;
+  }
+
   /** The patched cell's mark, re-rolled on every pass so the patch churns
    * under a moving cursor rather than sitting still.
    *
@@ -1008,10 +1053,14 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
       hitPending = false;
       if (layHits(now)) changed = true;
     }
+    if (sweepPending) {
+      sweepPending = false;
+      if (laySweep(now)) changed = true;
+    }
     if (changed) present();
     // Keep ticking while anything is still holding, so a cursor that stops
     // (or leaves) still gets its patch expired instead of frozen on screen.
-    if (hits.size || hitPending) hitRaf = requestAnimationFrame(hitFrame);
+    if (hits.size || hitPending || sweepPending) hitRaf = requestAnimationFrame(hitFrame);
   }
 
   function scheduleHitFrame() {
@@ -1159,6 +1208,29 @@ export function createDotScreen(canvas: HTMLCanvasElement, options: DotScreenOpt
   return {
     setImage,
     refresh,
+    /** Move the scroll sweep's front, 0..1 across the buffer; negative to
+     *  turn it off. Cheap to call every frame: it only marks the next hit
+     *  frame dirty, and an unchanged value does not even do that. */
+    setSweep(p: number) {
+      const next = p >= 0 && p <= 1 ? p : -1;
+      if (next === sweepAt) return;
+      /* Quantised to half a cell, and that is a throttle rather than a
+         rounding. Membership is per-cell, so moving the front less than a
+         cell cannot change which marks are lit — but re-laying it would
+         still repaint the buffer and re-composite the layer, and this is
+         driven by a scrub that fires every frame the page moves at all.
+         Gated this way the work is proportional to how far the light
+         actually travelled, not to how many frames went by: a slow scroll
+         costs almost nothing, and a fast one was going to redraw anyway. */
+      if (sweepAt >= 0 && next >= 0 && ow > 0) {
+        if (Math.abs(next - sweepAt) * ow < pitch * 0.5) return;
+      }
+      sweepAt = next;
+      if (next >= 0) {
+        sweepPending = true;
+        scheduleHitFrame();
+      }
+    },
     destroy() {
       if (hitRaf) cancelAnimationFrame(hitRaf);
       if (churnRaf) cancelAnimationFrame(churnRaf);

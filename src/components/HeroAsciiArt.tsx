@@ -91,6 +91,13 @@ interface Props {
    * lib/halftone.ts for why a px radius made the hands' patch three times
    * the brain's. */
   hoverRadius?: number;
+  /** Hands back this layer's scroll-sweep control once its renderer exists,
+   *  and null when it goes away. Only the 'cross' screen has one. The scene
+   *  drives it imperatively from the scroll, so it cannot be a prop: it
+   *  changes every frame and re-rendering React for that would be absurd. */
+  onSweep?: (set: ((p: number) => void) | null) => void;
+  /** Half-width of that sweep's lit column, in cells. */
+  sweepBand?: number;
   /** Which renderer draws this layer. 'ascii' is the symbol mosaic;
    * 'lines' is the engraving-style line screen (see lib/linescreen.ts);
    * 'dots' is the halftone dot screen and 'cross' the stitched glyph screen
@@ -143,7 +150,7 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, tone, toneLight, churn, glitch, fray }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, tone, toneLight, churn, glitch, fray, onSweep, sweepBand }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /* The renderers already re-read their COLOUR on a theme flip; swapping the
@@ -177,7 +184,7 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
         : variant === 'dots'
           ? createDotScreen(canvas, { pixel: DOT_PIXEL, pitch: DOT_PITCH, gamma: DOT_GAMMA, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn, patchRadius: hoverRadius })
           : variant === 'cross'
-            ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn, accent: glitch, patchRadius: hoverRadius })
+            ? createDotScreen(canvas, { mark: 'cross', pixel: CROSS_PIXEL, pitch: CROSS_PITCH, gamma: CROSS_GAMMA, cutoff: CROSS_CUTOFF, angle: SCREEN_ANGLE, churn: reducedMotion ? 0 : churn, accent: glitch, patchRadius: hoverRadius, sweepBand })
             : variant === 'dither'
               ? createDither(canvas, { fray, churn: reducedMotion ? 0 : churn })
               : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
@@ -214,6 +221,13 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
       const next = buildAsciiGridFromImage(loadedImage, loadedImage.naturalWidth, loadedImage.naturalHeight, cols, seed, 'alpha');
       if (!next.cols) return;
       (renderer as ReturnType<typeof createAsciiMosaic>).setGrid(next);
+    }
+
+    /* Published after the renderer exists and withdrawn on teardown, so the
+       scene can never hold a handle to a destroyed screen — this effect
+       re-runs on a theme flip, and the renderer it built is replaced. */
+    if (onSweep && variant === 'cross') {
+      onSweep((p: number) => (renderer as ReturnType<typeof createDotScreen>).setSweep(p));
     }
 
     const img = new Image();
@@ -267,12 +281,13 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
 
     return () => {
       cancelled = true;
+      onSweep?.(null);
       ro.disconnect();
       dprQuery?.removeEventListener('change', onDpr);
       renderer.destroy();
       window.clearTimeout(resizeTimer);
     };
-  }, [source, seed, hoverRadius, variant, churn, glitch, fray]);
+  }, [source, seed, hoverRadius, variant, churn, glitch, fray, onSweep, sweepBand]);
 
   return (
     <div ref={wrapRef} className="hero-ascii-art-wrap">
