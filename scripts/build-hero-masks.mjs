@@ -60,8 +60,19 @@ const MAP = {
   'clouds-ink.png': { src: 'clouds-frieze-source.png', mode: 'ink', despeckle: 140 },
   // largestOnly keeps just the connected figure — strips the tarot card's
   // floating stars/moon/numerals so no sky elements ride along with the prop
+  // NOT IN THE SCENE ANY MORE. The devil is animated now and the hero loads
+  // devil-anim.png instead (scripts/build-devil-anim.mjs). This recipe stays
+  // because it is the still the animated plate was registered against, and
+  // the fallback if the clip is ever dropped — but the two files it emits are
+  // dead weight under public/, so delete them again after a re-run unless you
+  // are putting the still back.
   'devil.png': { src: 'devil-tarot-source.png', mode: 'material', largestOnly: true },
   // flopped so it faces stage-center (it stands on the right side)
+  // NOT IN THE SCENE ANY MORE — same story as the devil above: the bird beats
+  // its wings now and the hero loads cockatrice-anim.png instead. Kept as the
+  // still the animated plate was registered against (its head-to-tail extent
+  // is what set the new layer's `w`), so delete what it emits after a re-run
+  // unless you are putting the still back.
   'cockatrice.png': { src: 'cockatrice-tarot-source.png', mode: 'material', flop: true },
   // distant mountains, as in the physical lightbox: the cloud engraving
   // reused — candles cropped off, flipped so the wavy edge becomes the

@@ -133,6 +133,19 @@ interface Props {
    * positive (the original black engraving, for paper) — the screens read
    * alpha as tone, so handing them the wrong one inverts the figure. */
   srcLight?: string;
+  /** How many stills this layer's mask holds, when it is an ATLAS: one sheet
+   * of frames laid out left-to-right, top-to-bottom (see
+   * scripts/build-devil-anim.mjs). Unset means an ordinary single-image
+   * layer, which is everything else in the scene. 'dither' only. */
+  frames?: number;
+  /** Columns in that sheet. The frame size is the file's own dimensions
+   * divided by the grid, so neither is written down twice. */
+  frameCols?: number;
+  /** Hands the scene this layer's frame control once its renderer exists,
+   *  and null when it goes away — same contract as `onSweep`, and for the
+   *  same reason: the scroll moves it every frame and re-rendering React for
+   *  that would be absurd. */
+  onFrames?: (set: ((frame: number) => void) | null) => void;
 }
 
 /**
@@ -150,9 +163,14 @@ interface Props {
  * inside the hero's 3D dolly, where apparent size comes from a CSS
  * perspective transform on a fixed-layout box, not a layout resize.
  */
-export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, tone, toneLight, churn, glitch, fray, onSweep, sweepBand }: Props) {
+export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant = 'ascii', srcLight, ink, tone, toneLight, churn, glitch, fray, onSweep, sweepBand, frames, frameCols, onFrames }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /* Survives the renderer. This effect re-runs on a theme flip and builds a
+     new dither with a fresh atlas, and the scene will not push a frame again
+     until the next scroll tick — so without this the devil snaps back to his
+     resting pose the moment the theme changes mid-dolly. */
+  const frameRef = useRef(0);
   /* The renderers already re-read their COLOUR on a theme flip; swapping the
      source ART is a different job, and it has to re-enter the effect so the
      new image loads and re-rasterises. Starts on the dark source so SSR and
@@ -189,6 +207,25 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
               ? createDither(canvas, { fray, churn: reducedMotion ? 0 : churn })
               : createAsciiMosaic(canvas, { hoverRadius, churn: reducedMotion ? 0 : 0.1 });
 
+    /* The atlas grid, solved from the file rather than declared: the sheet's
+       own dimensions divided by the layout the build script emitted. A
+       single-image layer is the degenerate 1x1 case, so nothing below needs
+       to know which kind it is. */
+    function frameCell(img: HTMLImageElement) {
+      const cols = frames && frameCols ? frameCols : 1;
+      const rows = frames && frameCols ? Math.ceil(frames / frameCols) : 1;
+      const w = Math.round(img.naturalWidth / cols);
+      const h = Math.round(img.naturalHeight / rows);
+      return {
+        w,
+        h,
+        at(i: number): [number, number] {
+          const n = Math.max(0, Math.min((frames ?? 1) - 1, Math.round(i)));
+          return [(n % cols) * w, Math.floor(n / cols) * h];
+        },
+      };
+    }
+
     // Cols is solved from the box's ACTUAL ON-SCREEN width (getBoundingClientRect,
     // post-perspective) rather than clientWidth or a fixed constant. clientWidth
     // is this layer's pre-projection layout size — deliberately pre-scaled up
@@ -204,11 +241,12 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
         // Needs the file's own dimensions: its buffer is sized off the ART,
         // not off the box, so that the 1-bit stipple is never resampled into
         // greys. See the note at the top of lib/dither.ts.
-        (renderer as ReturnType<typeof createDither>).setImage(
-          loadedImage,
-          loadedImage.naturalWidth,
-          loadedImage.naturalHeight
-        );
+        // For an atlas that is one FRAME's dimensions, not the sheet's —
+        // the plate is still exactly the art, there is simply more than one
+        // of it in the file.
+        const dither = renderer as ReturnType<typeof createDither>;
+        const cell = frameCell(loadedImage);
+        dither.setImage(loadedImage, cell.w, cell.h, ...cell.at(frameRef.current));
         return;
       }
       if (variant !== 'ascii') {
@@ -228,6 +266,16 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
        re-runs on a theme flip, and the renderer it built is replaced. */
     if (onSweep && variant === 'cross') {
       onSweep((p: number) => (renderer as ReturnType<typeof createDotScreen>).setSweep(p));
+    }
+    /* Same contract, for the atlas. The index is remembered here as well as
+       pushed, so a rebuild — a resize, a dpr change, a theme flip — comes
+       back on the pose the scroll last asked for rather than on frame 0. */
+    if (onFrames && variant === 'dither' && frames) {
+      onFrames((frame: number) => {
+        frameRef.current = frame;
+        if (!loadedImage) return;
+        (renderer as ReturnType<typeof createDither>).setFrame(...frameCell(loadedImage).at(frame));
+      });
     }
 
     const img = new Image();
@@ -282,12 +330,13 @@ export default function HeroAsciiArt({ src, seed = 61, hoverRadius = 3, variant 
     return () => {
       cancelled = true;
       onSweep?.(null);
+      onFrames?.(null);
       ro.disconnect();
       dprQuery?.removeEventListener('change', onDpr);
       renderer.destroy();
       window.clearTimeout(resizeTimer);
     };
-  }, [source, seed, hoverRadius, variant, churn, glitch, fray, onSweep, sweepBand]);
+  }, [source, seed, hoverRadius, variant, churn, glitch, fray, onSweep, sweepBand, frames, frameCols, onFrames]);
 
   return (
     <div ref={wrapRef} className="hero-ascii-art-wrap">

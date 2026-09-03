@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { gsap, ScrollTrigger, ensureGsap } from '@/lib/gsap';
 import HoverLink from './HoverLink';
 import HeroAsciiArt from './HeroAsciiArt';
@@ -191,6 +191,15 @@ interface SceneLayer {
   order?: number;
   /** This layer carries the scroll sweep. One layer only. */
   sweep?: boolean;
+  /** This layer's art is an ATLAS of this many stills rather than one
+   *  picture, and the dolly steps through them — see THE FLYBY below and
+   *  scripts/build-hero-anim.mjs. 'dither' layers only. */
+  frames?: number;
+  /** Columns in that sheet. */
+  frameCols?: number;
+  /** The still this layer should be wearing as it passes the camera — the
+   *  top of its gesture. Chosen off the sheet, not guessed; see THE FLYBY. */
+  peakFrame?: number;
   /** Ties this layer's horizontal place to the hand on that side, so it
    *  keeps its PROPORTION of the centre-to-hand span as the frame widens.
    *  The hand itself is the case where that proportion is 1. See handSpan(). */
@@ -319,8 +328,42 @@ const BASE_LAYERS: SceneLayer[] = [
      another, so the marks gather in somewhat different places on paper than
      they do on the dark stage. Both read as an aura around the figure, which
      is what matters. */
-  { id: 'devil', z: -250, track: 'left', w: 16.5, ar: 555 / 1024, x: -24, y: 8, ascii: '/hero/devil.png', asciiLight: '/hero/devil-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', fray: 0.12, idle: 'float-b' },
-  { id: 'cockatrice', z: -490, track: 'right', w: 19, ar: 720 / 661, x: 19, y: 11, ascii: '/hero/cockatrice.png', asciiLight: '/hero/cockatrice-ink.png', render: 'dither', tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', fray: 0.12, idle: 'float-c' },
+  /* An ATLAS — the same engraving, animated: he lifts his chin and breathes
+     fire as the camera closes on him (see THE FLYBY).
+     `w`, `ar` and `y` all moved with the art and none of them is a
+     re-composition. devil-anim.png is cropped tight to the figure (99% of its
+     box, against the still plate's 95x89), so holding the old numbers would
+     have grown him about 12%: 16.5 -> 16 and 8 -> 6.93 put the FIGURE back
+     at exactly the height and centre it had, measured off both plates' own
+     alpha bounds. The still is no longer shipped — its recipe is still in
+     build-hero-masks.mjs, which is where the registration can be re-derived
+     from if the clip is ever replaced.
+     `y` is in stage-HEIGHT percent while `w` and the box height are in
+     stage-WIDTH percent, and --stageH is --stageW / 1.6 — so solving for it
+     means carrying that factor. It was first solved without, which put him
+     4px low; harmless, but the number here is the right one.
+     The flame reaches out to the right, into the gap between him and the
+     brain — it needs no more box than the staff and snakes already claimed,
+     which is why the crop did not have to widen for it. */
+  { id: 'devil', z: -250, track: 'left', w: 16, ar: 555 / 947, x: -24, y: 6.93, ascii: '/hero/devil-anim.png', asciiLight: '/hero/devil-anim-ink.png', frames: 20, frameCols: 6, peakFrame: 11, render: 'dither', tone: 'color-mix(in srgb, var(--fg) 74%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 86%, var(--bg))', fray: 0.12, idle: 'float-b' },
+  /* The second atlas: the bird beats its wings, twice, as the camera comes
+     for it. Its box grew far more than the devil's did (19 -> 23.25 wide, and
+     a 1.24 aspect where the still was 1.09) and that is not a change of
+     scale — a standing bird needs a box the size of a standing bird, and a
+     FLAPPING one needs one that can hold the wings at full spread. The crop
+     is the union of every pose, so at any one moment the bird fills part of
+     it and the rest is the room its wings are about to use.
+     REGISTERED ON ITS HEAD-TO-TAIL EXTENT, not on its bounding box. The two
+     plates show different poses of the same bird, so the box is the wrong
+     thing to match: matching total height instead lets a raised wing shrink
+     the body to make room for it. The horizontal extent is nose to tail-tip
+     and barely moves with the wings, which makes it the one measure of the
+     BIRD rather than of its wingspan — matched exactly here, feet on the
+     same spot.
+     The feet land on the same row in all twenty frames, so the bird never
+     wanders inside the box; only the wings move, which is the whole point of
+     cropping to the union rather than per frame. */
+  { id: 'cockatrice', z: -490, track: 'right', w: 23.25, ar: 700 / 564, x: 19.08, y: 9.76, ascii: '/hero/cockatrice-anim.png', asciiLight: '/hero/cockatrice-anim-ink.png', frames: 20, frameCols: 4, peakFrame: 17, render: 'dither', tone: 'color-mix(in srgb, var(--fg) 82%, var(--bg))', toneLight: 'color-mix(in srgb, var(--fg) 90%, var(--bg))', fray: 0.12, idle: 'float-c' },
   /* hands: one shared near-camera plane — first-person hands entering from
      the wings, at the framing the dithered exports were authored for. `ar`
      is the files' own 375x500 and MUST track it; the earlier photo cutouts
@@ -499,6 +542,72 @@ function churnForDepth(z: number) {
  * you SEE at p=0; this converts them to the actual (larger, deeper) values. */
 function proj(z: number) {
   return (PERSP - z) / PERSP;
+}
+
+/* ---- THE FLYBY --------------------------------------------------------
+ *
+ * Two of the creatures wear a sheet of stills instead of one picture, and the
+ * DOLLY plays it: the devil lifts his chin and breathes fire, the cockatrice
+ * beats its wings. Not a clock — the layer's own depth picks the frame, so
+ * the fire and the wingbeat are things the camera's approach CAUSES rather
+ * than loops that happen to be running when you arrive. Scroll back up and
+ * the devil swallows the flame and the bird un-beats its wings.
+ *
+ * Keyed on depth and NOT on scroll progress, even though the two are a fixed
+ * function of one another here. z is what the rest of this file already
+ * reasons in — the kill fade, the fray, the aim — so keying on it puts the
+ * gesture in the same units as the events it has to land between, and it
+ * survives anything that changes the camera: retime TRAVEL or DOLLY_START
+ * and each creature still peaks at the same point in its own approach.
+ *
+ * THE PEAK is where a layer is biggest and still solid, and it is stated as
+ * a MAGNIFICATION — 1.93x the size the layer rests at — rather than as a
+ * depth. A shared depth was tried first and is wrong, in a way that only
+ * shows up once there are two of these at different depths: z 120 puts the
+ * devil (resting at -250) at 1.93x his resting size, and the cockatrice
+ * (resting at -490) at 2.5x. The bird was therefore peaking much later in
+ * its own flyby than the devil was in his — by then the perspective had
+ * swung it most of the way off the right edge, and it beat its wings where
+ * nobody could see them. What the eye is comparing is how big a thing has
+ * got relative to how big it was, so THAT is the thing to hold equal; the
+ * depth it happens at is solved back out per layer (peakZ below), and comes
+ * to 120 for the devil and -4 for the bird.
+ *
+ * 1.93x is where the devil was already tuned: a fifth of the way into the
+ * kill fade (which runs z 78 to 312 for everything), 82% opaque, close
+ * enough to be the only thing in that half of the frame. Earlier and the
+ * gesture goes off while the creature is still small and reads as an idle
+ * animation; later and it happens to a ghost. On the current camera that is
+ * about half the hero's scroll for the devil and three fifths for the bird.
+ *
+ * AFTER the peak the remaining frames run out across the rest of the fade,
+ * so the gesture is finishing in exactly the span the plate is dissolving in
+ * — the two end together instead of the layer going out mid-flame.
+ *
+ * `peakFrame` is a fact about the art, not a taste, and it is per layer:
+ * frames 9-12 of the devil's twenty are the full flame (11 is the last
+ * before it falls back), and 17 of the cockatrice's is the top of its
+ * upstroke, wings high and open — the end of one whole wingbeat that starts
+ * from the pose its still had. */
+const FLYBY_PEAK_GAIN = 1.93;
+const FLYBY_END_Z = KILL_START + KILL_RANGE;
+
+/** The depth at which a layer resting at `restZ` has grown by PEAK_GAIN.
+ *  Magnification is P/(P - z), so the ratio to rest is (P - restZ)/(P - z). */
+function peakZ(restZ: number) {
+  return PERSP - (PERSP - restZ) / FLYBY_PEAK_GAIN;
+}
+
+/** Which still a layer wears at depth `zNow`, given its resting depth. */
+function flybyFrame(zNow: number, restZ: number, frames: number, peak: number) {
+  const pz = peakZ(restZ);
+  const t =
+    zNow <= pz
+      ? // approach: rest -> peak over frames 0 -> peak
+        (peak * (zNow - restZ)) / (pz - restZ)
+      : // exit: peak -> last frame across what is left of the kill fade
+        peak + ((frames - 1 - peak) * (zNow - pz)) / (FLYBY_END_Z - pz);
+  return Math.max(0, Math.min(frames - 1, Math.round(t)));
 }
 
 /* How hard the fray runs, as a function of how near the camera a layer
@@ -687,6 +796,24 @@ export default function Hero() {
   // Stable, so publishing the handle never re-runs the renderer's effect.
   const onSweep = useCallback((set: ((p: number) => void) | null) => {
     sweepRef.current = set;
+  }, []);
+  /* Same handle for the animated plates (see THE FLYBY). Keyed by layer id
+     because there are two of them now — which is exactly why it was not a
+     singleton when there was only one.
+     One callback per animated layer, built once — the renderer's effect has
+     this in its deps, so a fresh closure per render would tear down and
+     rebuild the plate on every one of them. */
+  const framesRef = useRef(new Map<string, (frame: number) => void>());
+  const onFramesFor = useMemo(() => {
+    const m = new Map<string, (set: ((frame: number) => void) | null) => void>();
+    for (const l of LAYERS) {
+      if (!l.frames) continue;
+      m.set(l.id, (set) => {
+        if (set) framesRef.current.set(l.id, set);
+        else framesRef.current.delete(l.id);
+      });
+    }
+    return m;
   }, []);
   /* Stage geometry in px, shared by the two effects that move the ground:
      resize owns w/h/cx/cy, the pointer parallax owns lookX/lookY. */
@@ -977,6 +1104,12 @@ export default function Hero() {
         // One number, written where the renderer can read it without asking
         // the browser to measure anything.
         if (l.fray) el.dataset.near = frayGain(zNow).toFixed(3);
+        /* THE FLYBY. Same zNow the fray and the fade are reading, so the
+           gesture is timed against the same approach they are. The setter
+           early-outs on a repeat, and only a CHANGE of frame costs anything
+           — twenty rasterisations per animated layer across the whole
+           dolly. */
+        if (l.frames) framesRef.current.get(l.id)?.(flybyFrame(zNow, l.z, l.frames, l.peakFrame ?? 0));
       });
 
       /* ---- floor flow --------------------------------------------------
@@ -1249,7 +1382,7 @@ export default function Hero() {
                         className={`hl-art${l.idle ? ` idle-${l.idle}` : ''}${l.fade ? ' hl-fade' : ''}`}
                         style={l.fade ? ({ '--hl-fade': `${l.fade}%` } as CSSProperties) : undefined}
                       >
-                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} tone={l.tone} toneLight={l.toneLight} churn={churnForDepth(l.z)} glitch={l.glitch} fray={l.fray} onSweep={l.sweep ? onSweep : undefined} sweepBand={l.sweep ? SWEEP_BAND : undefined} />
+                        <HeroAsciiArt src={l.ascii} srcLight={l.asciiLight} seed={i + 1} variant={l.render ?? 'ascii'} ink={l.ink} tone={l.tone} toneLight={l.toneLight} churn={churnForDepth(l.z)} glitch={l.glitch} fray={l.fray} onSweep={l.sweep ? onSweep : undefined} sweepBand={l.sweep ? SWEEP_BAND : undefined} frames={l.frames} frameCols={l.frameCols} onFrames={onFramesFor.get(l.id)} />
                       </div>
                     )}
                     {l.mask && l.kind !== 'spark' && (

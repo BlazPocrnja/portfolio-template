@@ -10,6 +10,18 @@
  * a contrast no procedural screen was matching, so re-screening it threw
  * away the thing worth keeping.
  *
+ * ATLASES
+ *
+ * A layer's art can be a SHEET of stills rather than one picture, and the
+ * scene can step through them (setFrame) — which is how the devil breathes
+ * fire and the cockatrice beats its wings as the dolly closes on them; see
+ * THE FLYBY in Hero.tsx. Nothing here
+ * knows that: a frame is just a source rect, so `sourceW`/`sourceH` describe
+ * one cell and everything below goes on treating that as the whole picture.
+ * A step costs one rasterise — the plate and its coverage field are both
+ * derived from pixels that just changed — so the caller is expected to work
+ * in whole frames and not to scrub.
+ *
  * WHY THE BUFFER IS SIZED OFF THE FILE, NOT THE BOX
  *
  * Every other renderer here picks its own grain and rasterises the source
@@ -373,6 +385,13 @@ export function createDither(canvas: HTMLCanvasElement, options: DitherOptions =
      none of the motion. */
   let plate: Uint8ClampedArray = new Uint8ClampedArray(0);
   let plateKey = '';
+  /* Which cell of the source is the plate. Zero for an ordinary single-image
+     layer; for an ATLAS (see setFrame) the top-left of the current frame,
+     with sourceW/sourceH holding one frame rather than the whole sheet.
+     Everything downstream is written against sourceW/sourceH, so a frame is
+     simply a smaller picture that happens to live inside a bigger file. */
+  let srcX = 0;
+  let srcY = 0;
   let ow = 0;
   let oh = 0;
   let viewW = 0;
@@ -515,7 +534,10 @@ export function createDither(canvas: HTMLCanvasElement, options: DitherOptions =
     // than the art, averaging the dots down is the lesser evil. Nearest
     // neighbour on a stipple picks winners at random and moires horribly.
     bctx.imageSmoothingEnabled = true;
-    bctx.drawImage(source, 0, 0, ow, oh);
+    // Source rect, not the whole image: an atlas layer draws one frame out
+    // of the sheet. srcX/srcY are 0 for everything else, so this is the
+    // same draw it always was.
+    bctx.drawImage(source, srcX, srcY, sourceW, sourceH, 0, 0, ow, oh);
     let data: Uint8ClampedArray;
     try {
       data = bctx.getImageData(0, 0, ow, oh).data;
@@ -523,11 +545,18 @@ export function createDither(canvas: HTMLCanvasElement, options: DitherOptions =
       // Tainted canvas (cross-origin source without CORS).
       return false;
     }
-    base = new Uint8Array(ow * oh);
+    /* Reused whenever the buffer has not actually changed shape. An atlas
+       layer comes back through here on every frame step — a few dozen times
+       across the dolly — and throwing away three buffers this size each
+       time hands the collector several megabytes of garbage mid-scroll, for
+       nothing: the only thing that moved is the pixels inside them. */
+    if (base.length !== ow * oh) base = new Uint8Array(ow * oh);
     for (let i = 0; i < ow * oh; i++) base[i] = data[i * 4 + 3] ?? 0;
     if (frayLevel > 0) cover = coverage(base, ow, oh);
-    image = bctx.createImageData(ow, oh);
-    plate = new Uint8ClampedArray(ow * oh * 4);
+    if (!image || image.width !== ow || image.height !== oh) image = bctx.createImageData(ow, oh);
+    if (plate.length !== ow * oh * 4) plate = new Uint8ClampedArray(ow * oh * 4);
+    // The plate is derived from pixels that just changed, so its memo is
+    // stale whether or not the buffer was reallocated.
     plateKey = '';
     return true;
   }
@@ -762,12 +791,28 @@ export function createDither(canvas: HTMLCanvasElement, options: DitherOptions =
     }
   }
 
-  function setImage(next: CanvasImageSource, naturalW: number, naturalH: number) {
+  /** For an atlas, `naturalW`/`naturalH` are ONE FRAME's size and `frameX`/
+   * `frameY` its origin in the sheet — not the file's own dimensions. */
+  function setImage(next: CanvasImageSource, naturalW: number, naturalH: number, frameX = 0, frameY = 0) {
     source = next;
     sourceW = naturalW;
     sourceH = naturalH;
+    srcX = frameX;
+    srcY = frameY;
     readColors();
     if (resample()) render();
+  }
+
+  /** Shows a different cell of the atlas. The scene drives this from the
+   * scroll, so it is called with the same frame far more often than with a
+   * new one — hence the early-out. A step costs one rasterise of the plate
+   * (and its coverage field), which is why the caller works in whole frames
+   * rather than scrubbing continuously. */
+  function setFrame(frameX: number, frameY: number) {
+    if (frameX === srcX && frameY === srcY) return;
+    srcX = frameX;
+    srcY = frameY;
+    if (source && resample()) render();
   }
 
   function refresh() {
@@ -851,6 +896,7 @@ export function createDither(canvas: HTMLCanvasElement, options: DitherOptions =
 
   return {
     setImage,
+    setFrame,
     refresh,
     destroy() {
       onScreen?.disconnect();
